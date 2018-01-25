@@ -1,0 +1,55 @@
+{
+  "version": "1.0.0",
+  "name": "Direct Energie",
+  "type": "node",
+  "slug": "directenergie",
+  "description": "Récupère toutes factures et échéanciers Direct Energie",
+  "source": "git://github.com/konnectors/cozy-konnector-directenergie.git",
+  "locales": {
+    "fr": {
+      "description": "Récupère toutes factures et échéanciers Direct Energie",
+      "permissions": {
+        "bills": {
+          "description": "Utilisé pour sauvegarder les données de facturation"
+        },
+        "files": {
+          "description": "Utilisé pour sauvegarder les factures"
+        }
+      }
+    },
+    "en": {
+      "description": "Retrieves all your Direct Energie invoices",
+      "permissions": {
+        "bills": {
+          "description": "Used to save billing data"
+        },
+        "files": {
+          "description": "Used to save invoices"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "bank operations": {
+      "description": "Required to link bills to bank operations",
+      "type": "io.cozy.bank.operations"
+    },
+    "bills": {
+      "description": "Required to save the bills data",
+      "type": "io.cozy.bills"
+    },
+    "files": {
+      "description": "Required to save the bills",
+      "type": "io.cozy.files"
+    },
+    "accounts": {
+      "description": "Required to get the account's data",
+      "type": "io.cozy.accounts",
+      "verbs": ["GET"]
+    }
+  },
+  "developer": {
+    "name": "Brice Coquereau",
+    "url": "brice@coquereau.fr"
+  }
+}
