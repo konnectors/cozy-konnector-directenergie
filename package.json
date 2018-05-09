@@ -10,7 +10,7 @@
   "author": "Brice Coquereau <brice@coquereau.fr>",
   "license": "AGPL-3.0",
   "dependencies": {
-    "cozy-konnector-libs": "3.2.5"
+    "cozy-konnector-libs": "4.2.0"
   },
   "scripts": {
     "start": "node src/index.js",
