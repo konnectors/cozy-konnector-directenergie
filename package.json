@@ -29,6 +29,7 @@
     "lint": "eslint --fix .",
     "deploy": "git-directory-deploy --directory build/ --branch ${DEPLOY_BRANCH:-build} --repo=${DEPLOY_REPOSITORY:-https://$GITHUB_TOKEN@github.com/konnectors/cozy-konnector-directenergie.git}",
     "cozyPublish": "cozy-app-publish --token $REGISTRY_TOKEN --build-commit $(git rev-parse ${DEPLOY_BRANCH:-build})",
+    "publish:cozy": "git fetch origin ${DEPLOY_BRANCH:-build}:${DEPLOY_BRANCH:-build} && cozy-app-publish --token $REGISTRY_TOKEN --build-commit $(git rev-parse ${DEPLOY_BRANCH:-build})",
     "travisDeployKey": "./bin/generate_travis_deploy_key"
   },
   "dependencies": {
@@ -44,6 +45,6 @@
     "husky": "0.14.3",
     "konitor": "0.9.0",
     "webpack": "4.11.1",
-    "webpack-cli": "3.0.2"
+    "webpack-cli": "3.0.3"
   }
 }
