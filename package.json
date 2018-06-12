@@ -30,7 +30,8 @@
     "deploy": "git-directory-deploy --directory build/ --branch ${DEPLOY_BRANCH:-build} --repo=${DEPLOY_REPOSITORY:-https://$GITHUB_TOKEN@github.com/konnectors/cozy-konnector-directenergie.git}",
     "cozyPublish": "cozy-app-publish --token $REGISTRY_TOKEN --build-commit $(git rev-parse ${DEPLOY_BRANCH:-build})",
     "publish:cozy": "git fetch origin ${DEPLOY_BRANCH:-build}:${DEPLOY_BRANCH:-build} && cozy-app-publish --token $REGISTRY_TOKEN --build-commit $(git rev-parse ${DEPLOY_BRANCH:-build})",
-    "travisDeployKey": "./bin/generate_travis_deploy_key"
+    "travisDeployKey": "./bin/generate_travis_deploy_key",
+    "version": "node update_manifest_version.js && git add manifest.konnector"
   },
   "dependencies": {
     "cozy-konnector-libs": "4.4.0"
