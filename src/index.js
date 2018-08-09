@@ -3,7 +3,8 @@ const {
   BaseKonnector,
   requestFactory,
   saveBills,
-  errors
+  errors,
+  utils
 } = require('cozy-konnector-libs')
 const moment = require('moment')
 const request = requestFactory({
@@ -21,13 +22,9 @@ const checkFields = fields => {
   if (fields.password === undefined) {
     throw new Error('Password is missing')
   }
-  return Promise.resolve({
-    login: fields.login,
-    password: fields.password
-  })
 }
 
-const doLogin = (login, password) => {
+const doLogin = ({ login, password }) => {
   log('info', 'Logging in')
   return request({
     method: 'POST',
@@ -137,7 +134,11 @@ const parseBills = () => {
           fileurl: `https://clients.direct-energie.com/${billRelativeUrl}`,
           filename: `echeancier_${type}_${billEmissionDate.format(
             'YYYYMMDD'
-          )}_directenergie.pdf`
+          )}_directenergie.pdf`,
+          metadata: {
+            dateImport: new Date(),
+            version: 2
+          }
         })
       })
     })
@@ -147,17 +148,44 @@ const parseBills = () => {
   })
 }
 
-const start = fields => {
-  return checkFields(fields)
-    .then(({ login, password }) => doLogin(login, password))
-    .then($ => checkLoginOk($))
-    .then(() => selectActiveAccount())
-    .then(() => parseBills(fields))
-    .then(bills =>
-      saveBills(bills, fields, {
-        identifiers: ['direct energie']
-      })
+async function normalizeBills() {
+  const directBills = await utils.queryAll('io.cozy.bills', {
+    filename: { $regex: '_directenergie.pdf$' }
+  })
+
+  const nbNotNormalized = directBills.filter(
+    doc => !doc.metadata || !doc.metadata.version === 2
+  ).length
+  if (nbNotNormalized) {
+    log(
+      'info',
+      `Normalizing ${nbNotNormalized} bills without vendor attribute and with associated file ending in "_directenergie.pdf"`
     )
+    await utils.batchUpdateAttributes(
+      'io.cozy.bills',
+      directBills.map(doc => doc._id),
+      {
+        vendor: 'Direct Energie',
+        metadata: {
+          dateImport: new Date(),
+          version: 2
+        }
+      }
+    )
+  }
+}
+
+const start = async fields => {
+  await normalizeBills()
+  checkFields(fields)
+  const $ = await doLogin(fields)
+  await checkLoginOk($)
+  await selectActiveAccount()
+  const bills = await parseBills()
+  return await saveBills(bills, fields, {
+    identifiers: ['direct energie'],
+    removeDuplicates: true
+  })
 }
 
 module.exports = new BaseKonnector(start)
