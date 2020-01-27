@@ -1,5 +1,5 @@
 {
-  "version": "1.6.0",
+  "version": "1.5.3",
   "name": "Total Direct Energie",
   "type": "konnector",
   "language": "node",
@@ -7,7 +7,7 @@
   "slug": "directenergie",
   "source": "git@github.com:konnectors/cozy-konnector-directenergie.git",
   "editor": "Brice Coquereau",
-  "vendor_link": "https://clients.direct-energie.com/connexion-clients-particuliers/",
+  "vendor_link": "https://total.direct-energie.com/clients/connexion",
   "categories": [
     "energy"
   ],
