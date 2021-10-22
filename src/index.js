@@ -12,7 +12,6 @@ const {
 } = require('cozy-konnector-libs')
 
 const moment = require('moment')
-const cheerio = require('cheerio')
 
 const request = requestFactory({
   // The debug mode shows all the details about HTTP requests and responses. Very useful for
@@ -27,7 +26,6 @@ const request = requestFactory({
   jar: true
 })
 
-const VENDOR = 'template'
 const baseUrl = 'https://www.totalenergies.fr'
 
 const courl = baseUrl + '/clients/connexion'
@@ -58,7 +56,7 @@ async function start(fields, cozyParameters) {
 
 async function authenticate(username, password) {
   log('debug', 'Authentification en cours')
-  const $ = await signin({
+  await signin({
     url: courl,
     formSelector: '#fz-authentificationForm',
     formData: {
