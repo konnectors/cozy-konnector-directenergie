@@ -45,7 +45,7 @@ async function start(fields, cozyParameters) {
   const bills = await parseBill()
 
   await this.saveBills(bills, fields, {
-    fileIdAttributes: ['vendor', 'contractId', 'date', 'amount'],
+    fileIdAttributes: ['vendorRef'],
     linkBankOperations: false,
     identifiers: ['Total energie'],
     sourceAccount: this.accountId,
