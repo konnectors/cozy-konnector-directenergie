@@ -166,10 +166,8 @@ async function parseBill() {
           amount,
           date,
           fileurl: `https://www.totalenergies.fr${fileurl}`,
-          filename: `echeancier_${moment(echDate).format(
-            'YYYYMMDD'
-          )}_TotalEnergies.pdf`,
-          vendor: 'Total Energie',
+          filename: `${utils.formatDate(echDate)}_TotalEnergies_Echéancier.pdf`,
+          vendor: 'Direct Energie',
           fileAttributes: {
             metadata: {
               carbonCopy: true
@@ -189,7 +187,7 @@ async function parseBill() {
         fileurl: `https://www.totalenergies.fr${fileurl}`,
         filename: `${utils.formatDate(date)}_TotalEnergies_${amount.toFixed(
           2
-        )}EUR${vendorRef}.pdf`,
+        )}EUR_${vendorRef}.pdf`,
         fileIdAttributes: ['vendorRef'],
         vendor: 'Direct Energie',
         fileAttributes: {
