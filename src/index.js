@@ -12,7 +12,6 @@ const {
 } = require('cozy-konnector-libs')
 
 const moment = require('moment')
-const cheerio = require('cheerio')
 
 const request = requestFactory({
   // The debug mode shows all the details about HTTP requests and responses. Very useful for
@@ -27,7 +26,6 @@ const request = requestFactory({
   jar: true
 })
 
-const VENDOR = 'template'
 const baseUrl = 'https://www.totalenergies.fr'
 
 const courl = baseUrl + '/clients/connexion'
@@ -58,7 +56,7 @@ async function start(fields, cozyParameters) {
 
 async function authenticate(username, password) {
   log('debug', 'Authentification en cours')
-  const $ = await signin({
+  await signin({
     url: courl,
     formSelector: '#fz-authentificationForm',
     formData: {
@@ -168,10 +166,8 @@ async function parseBill() {
           amount,
           date,
           fileurl: `https://www.totalenergies.fr${fileurl}`,
-          filename: `echeancier_${moment(echDate).format(
-            'YYYYMMDD'
-          )}_TotalEnergies.pdf`,
-          vendor: 'Total Energie',
+          filename: `${utils.formatDate(echDate)}_TotalEnergies_Echéancier.pdf`,
+          vendor: 'Direct Energie',
           fileAttributes: {
             metadata: {
               carbonCopy: true
@@ -191,7 +187,7 @@ async function parseBill() {
         fileurl: `https://www.totalenergies.fr${fileurl}`,
         filename: `${utils.formatDate(date)}_TotalEnergies_${amount.toFixed(
           2
-        )}EUR${vendorRef}.pdf`,
+        )}EUR_${vendorRef}.pdf`,
         fileIdAttributes: ['vendorRef'],
         vendor: 'Direct Energie',
         fileAttributes: {
