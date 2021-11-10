@@ -8,10 +8,14 @@ const {
   scrape,
   log,
   utils,
-  signin
+  signin,
+  cozyClient
 } = require('cozy-konnector-libs')
 
 const moment = require('moment')
+
+const models = cozyClient.new.models
+const { Qualification } = models.document
 
 const request = requestFactory({
   // The debug mode shows all the details about HTTP requests and responses. Very useful for
@@ -170,7 +174,8 @@ async function parseBill() {
           vendor: 'Direct Energie',
           fileAttributes: {
             metadata: {
-              carbonCopy: true
+              carbonCopy: true,
+              qualification: Qualification.getByLabel('energy_invoice')
             }
           }
         })
@@ -192,7 +197,8 @@ async function parseBill() {
         vendor: 'Direct Energie',
         fileAttributes: {
           metadata: {
-            carbonCopy: true
+            carbonCopy: true,
+            qualification: Qualification.getByLabel('energy_invoice')
           }
         }
       })
