@@ -174,7 +174,8 @@ async function parseBill() {
           vendor: 'Direct Energie',
           fileAttributes: {
             metadata: {
-              contentAuthor: 'Total Energie',
+              contentAuthor: 'https://www.totalenergies.fr/particuliers',
+              issueDate: utils.formatDate(date),
               datetime: utils.formatDate(date),
               datetimeLabel: `issueDate`,
               invoiceNumber: `${vendorRef}`,
@@ -202,7 +203,8 @@ async function parseBill() {
         vendor: 'Direct Energie',
         fileAttributes: {
           metadata: {
-            contentAuthor: 'Total Energie',
+            contentAuthor: 'https://www.totalenergies.fr/particuliers',
+            issueDate: utils.formatDate(date),
             datetime: utils.formatDate(date),
             datetimeLabel: `issueDate`,
             invoiceNumber: `${vendorRef}`,
