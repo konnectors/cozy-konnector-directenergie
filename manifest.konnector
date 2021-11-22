@@ -103,6 +103,7 @@
     "METADATA_DEDUP",
     "CARBON_COPY",
     "DOC_QUALIFICATION_V2"
+    "SENTRY_V2"
   ],
   "banksTransactionRegExp": "\\b(totalenergies| total energies|total direct energie)\\b",
   "manifest_version": "2"
