@@ -98,6 +98,9 @@
       }
     }
   },
+  "qualification_labels":[
+    "energy_invoice"
+  ],
   "features": [
     "LOGIN_OK",
     "METADATA_DEDUP",
