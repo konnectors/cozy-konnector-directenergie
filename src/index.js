@@ -1,6 +1,6 @@
 process.env.SENTRY_DSN =
   process.env.SENTRY_DSN ||
-  'https://60c5bb56449a4d9bb5bff05b2449d0af@sentry.cozycloud.cc/122'
+  'https://0e2e4e682d4d40fcade8082a84537fed@errors.cozycloud.cc/10'
 
 const {
   BaseKonnector,
@@ -55,7 +55,7 @@ async function start(fields, cozyParameters) {
     sourceAccount: this.accountId,
     sourceAccountIdentifier: fields.login
   })
-  log('info', 'Fin de la récupératiob')
+  log('info', 'Fin de la récupération')
 }
 
 async function authenticate(username, password) {
@@ -174,7 +174,7 @@ async function parseBill() {
           vendor: 'Direct Energie',
           fileAttributes: {
             metadata: {
-              contentAuthor: 'https://www.totalenergies.fr/particuliers',
+              contentAuthor: 'totalenergies.fr',
               issueDate: utils.formatDate(date),
               datetime: utils.formatDate(date),
               datetimeLabel: `issueDate`,
@@ -203,7 +203,7 @@ async function parseBill() {
         vendor: 'Direct Energie',
         fileAttributes: {
           metadata: {
-            contentAuthor: 'https://www.totalenergies.fr/particuliers',
+            contentAuthor: 'totalenergies.fr',
             issueDate: utils.formatDate(date),
             datetime: utils.formatDate(date),
             datetimeLabel: `issueDate`,
