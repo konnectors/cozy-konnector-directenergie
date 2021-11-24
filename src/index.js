@@ -55,7 +55,7 @@ async function start(fields, cozyParameters) {
     sourceAccount: this.accountId,
     sourceAccountIdentifier: fields.login
   })
-  log('info', 'Fin de la récupératiob')
+  log('info', 'Fin de la récupération')
 }
 
 async function authenticate(username, password) {
