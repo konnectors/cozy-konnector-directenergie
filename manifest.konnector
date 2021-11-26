@@ -106,6 +106,7 @@
   ],
   "features": [
     "LOGIN_OK",
+    "VENDOR_REF",
     "METADATA_DEDUP",
     "CARBON_COPY",
     "DOC_QUALIFICATION_V2",
