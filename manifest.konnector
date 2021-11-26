@@ -1,5 +1,5 @@
 {
-  "version": "1.16.0",
+  "version": "1.16.1",
   "name": "TotalEnergies",
   "type": "konnector",
   "language": "node",
@@ -106,6 +106,7 @@
   ],
   "features": [
     "LOGIN_OK",
+    "VENDOR_REF",
     "METADATA_DEDUP",
     "CARBON_COPY",
     "DOC_QUALIFICATION_V2",
