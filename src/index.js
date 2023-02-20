@@ -32,7 +32,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async waitForUserAuthentication() {
-    this.log('waitForUserAuthentication starts')
+    this.log('info','waitForUserAuthentication starts')
     await this.setWorkerState({ visible: true })
     await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
     await this.setWorkerState({ visible: false })
@@ -47,7 +47,7 @@ class TemplateContentScript extends ContentScript {
     await this.waitForElementInWorker('.dydu-teaser')
     await this.runInWorker('getIdentity')
     if (!this.store.userIdentity) {
-      this.log("Couldn't find a sourceAccountIdentifier, using default")
+      this.log('debug',"Couldn't find a sourceAccountIdentifier, using default")
       return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
     return { sourceAccountIdentifier: this.store.userIdentity.email }
@@ -86,7 +86,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async authWithCredentials(credentials) {
-    this.log('auth with credentials starts')
+    this.log('info','auth with credentials starts')
     await this.goto(baseUrl)
     await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
     await this.runInWorker('clickLoginPage')
@@ -103,7 +103,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async authWithoutCredentials() {
-    this.log('auth without credentials starts')
+    this.log('info','auth without credentials starts')
     await this.goto(baseUrl)
     await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
     await this.runInWorker('clickLoginPage')
@@ -118,7 +118,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async tryAutoLogin(credentials) {
-    this.log('Trying auto login')
+    this.log('debug','Trying auto login')
     await this.autoLogin(credentials)
     if (await this.checkAuthenticated()) {
       return true
@@ -126,7 +126,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async autoLogin(credentials) {
-    this.log('AutoLogin starts')
+    this.log('info','AutoLogin starts')
     await this.waitForElementInWorker('#formz-authentification-form-login')
     await this.runInWorker('fillingForm', credentials)
     await this.runInWorker(
@@ -152,7 +152,7 @@ class TemplateContentScript extends ContentScript {
         loginField,
         passwordField
       )
-      this.log('Sendin userCredentials to Pilot')
+      this.log('debug','Sendin userCredentials to Pilot')
       this.sendToPilot({
         userCredentials
       })
@@ -161,14 +161,14 @@ class TemplateContentScript extends ContentScript {
       document.location.href === HOMEPAGE_URL &&
       document.querySelector('.menu-btn--deconnexion')
     ) {
-      this.log('Auth Check succeeded')
+      this.log('info','Auth Check succeeded')
       return true
     }
     return false
   }
 
   async findAndSendCredentials(login, password) {
-    this.log('findAndSendCredentials starts')
+    this.log('debug','findAndSendCredentials starts')
     let userLogin = login.value
     let userPassword = password.value
     const userCredentials = {
@@ -184,7 +184,7 @@ class TemplateContentScript extends ContentScript {
       loginPageButton.click()
       return true
     }
-    this.log('No loginPage found')
+    this.log('debug','No loginPage found')
     return false
   }
 
@@ -227,13 +227,13 @@ class TemplateContentScript extends ContentScript {
     const passwordField = document.querySelector(
       '#formz-authentification-form-password'
     )
-    this.log('Filling fields with credentials')
+    this.log('debug','Filling fields with credentials')
     loginField.value = credentials.login
     passwordField.value = credentials.password
   }
 
   async getIdentity() {
-    this.log('getIdentity starts')
+    this.log('info','getIdentity starts')
     const infosElements = document.querySelectorAll('.cadre2')
     const familyName = infosElements[0].children[0].textContent.split(':')[1]
     const name = infosElements[0].children[1].textContent.split(':')[1]
@@ -272,7 +272,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getBills() {
-    this.log('getBills starts')
+    this.log('info','getBills starts')
     const invoices = await this.getInvoices()
     const schedules = await this.getSchedules()
     const allDocuments = await this.computeInformations(invoices, schedules)
@@ -281,7 +281,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getContract() {
-    this.log('getContract starts')
+    this.log('info','getContract starts')
     const contractElement = document.querySelector('.cadre2')
     const offerName = contractElement.querySelector('h2').innerHTML
     const rawStartDate = contractElement.querySelector(
@@ -491,7 +491,7 @@ class TemplateContentScript extends ContentScript {
     } else if (rawPaymentStatus.match('Remboursée')) {
       return 'Refunded'
     } else {
-      this.log('Unknown status, returning as it is')
+      this.log('debug','Unknown status, returning as it is')
       return rawPaymentStatus
     }
   }
