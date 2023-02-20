@@ -39,30 +39,27 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getUserDataFromWebsite() {
-    await this.clickAndWait(
-      'a[href="/clients/mon-compte"]',
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
+    await this.waitForElementInWorker('a[href="/clients/mon-compte/gerer-mes-comptes"]')
     await this.clickAndWait(
       'a[href="/clients/mon-compte/mes-infos-de-contact"]',
-      'div[class="pb-dm"]'
+      '.cadre2'
     )
+    await this.waitForElementInWorker('.dydu-teaser')
     await this.runInWorker('getIdentity')
-    const sourceAccountId = await this.runInWorker('getUserMail')
-    if (sourceAccountId === 'UNKNOWN_ERROR') {
+    if (!this.store.userIdentity) {
       this.log("Couldn't find a sourceAccountIdentifier, using default")
       return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
-    return { sourceAccountIdentifier: sourceAccountId }
+    return { sourceAccountIdentifier: this.store.userIdentity.email }
   }
 
   async fetch(context) {
     await this.clickAndWait(
-      'a[href="/clients/mes-factures/mes-factures-et-paiements"]',
-      'a[href="/clients/mes-factures/mes-factures-electricite/mon-historique-de-factures"]'
+      'a[href="/clients/mes-factures"]',
+      'a[href="/clients/mes-factures/mon-historique-de-factures"]'
     )
     await this.clickAndWait(
-      'a[href="/clients/mes-factures/mes-factures-electricite/mon-historique-de-factures"]',
+      'a[href="/clients/mes-factures/mon-historique-de-factures"]',
       '.detail-facture'
     )
     const billsDone = await this.runInWorker('getBills')
@@ -235,33 +232,19 @@ class TemplateContentScript extends ContentScript {
     passwordField.value = credentials.password
   }
 
-  getUserMail() {
-    const userMailElement = document.querySelectorAll('div[class="pb-dm"]')
-    const userMail = userMailElement[1].querySelectorAll('strong')[1].innerHTML
-    if (userMail) return userMail
-    return 'UNKNOWN_ERROR'
-  }
-
   async getIdentity() {
     this.log('getIdentity starts')
-    const infosElements = document.querySelectorAll('div[class="pb-dm"]')
-    const familyName = infosElements[0].querySelectorAll('strong')[0].innerHTML
-    const name = infosElements[0].querySelectorAll('strong')[1].innerHTML
-    const clientRef = infosElements[0].querySelectorAll('strong')[2].innerHTML
-    const phoneNumber = infosElements[1].querySelectorAll('strong')[0].innerHTML
-    const email = infosElements[1].querySelectorAll('strong')[1].innerHTML
-    const rawAddress = infosElements[2]
-      .querySelectorAll('strong')[0]
-      .innerHTML.replaceAll('<br> ', '')
+    const infosElements = document.querySelectorAll('.cadre2')
+    const familyName = infosElements[0].children[0].textContent.split(':')[1]
+    const name = infosElements[0].children[1].textContent.split(':')[1]
+    const clientRef = infosElements[0].children[2].textContent.split(':')[1]
+    const phoneNumber = infosElements[1].children[0].textContent.split(':')[1]
+    const email = infosElements[1].children[1].textContent.split(':')[1].trim()
+    const rawAddress = infosElements[2].children[0].textContent.replace(/  /g, ' ')
     const splittedAddress = rawAddress.match(
-      /([0-9]*) ([A-Z\s-]*) ([0-9]{5}) ([A-Z0-9-\s/]*)/
+      /([0-9]*) ([A-Za-z\s-]*) ([0-9]{5}) ([A-Za-z0-9-\s/]*)/
     )
-    const fullAddress = splittedAddress[0]
-    const houseNumber = splittedAddress[1]
-    const street = splittedAddress[2]
-    const postCode = splittedAddress[3]
-    const city = splittedAddress[4]
-
+    const [fullAddress, houseNumber, street, postCode, city] = splittedAddress
     const userIdentity = {
       email,
       clientRef,
@@ -520,7 +503,6 @@ connector
     additionalExposedMethodsNames: [
       'clickLoginPage',
       'checkMaintenanceStatus',
-      'getUserMail',
       'getBills',
       'fillingForm',
       'checkIfLogged',
