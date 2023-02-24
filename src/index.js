@@ -1,231 +1,546 @@
-process.env.SENTRY_DSN =
-  process.env.SENTRY_DSN ||
-  'https://0e2e4e682d4d40fcade8082a84537fed@errors.cozycloud.cc/10'
+import { ContentScript } from 'cozy-clisk/dist/contentscript'
+import Minilog from '@cozy/minilog'
+const log = Minilog('ContentScript')
+Minilog.enable('totalenergiesCCC')
 
-const {
-  BaseKonnector,
-  requestFactory,
-  scrape,
-  log,
-  utils,
-  signin,
-  cozyClient
-} = require('cozy-konnector-libs')
+const baseUrl = 'https://www.totalenergies.fr/'
+const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
+const HOMEPAGE_URL =
+  'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
+const DEFAULT_SOURCE_ACCOUNT_IDENTIFIER = 'total energie'
 
-const moment = require('moment')
-
-const models = cozyClient.new.models
-const { Qualification } = models.document
-
-const request = requestFactory({
-  // The debug mode shows all the details about HTTP requests and responses. Very useful for
-  // debugging but very verbose. This is why it is commented out by default
-  // debug: true,
-  // Activates [cheerio](https://cheerio.js.org/) parsing on each page
-  cheerio: true,
-  // If cheerio is activated do not forget to deactivate json parsing (which is activated by
-  // default in cozy-konnector-libs
-  json: false,
-  // This allows request-promise to keep cookies between requests
-  jar: true
-})
-
-const baseUrl = 'https://www.totalenergies.fr'
-
-const courl = baseUrl + '/clients/connexion'
-
-module.exports = new BaseKonnector(start)
-
-// The start function is run by the BaseKonnector instance only when it got all the account
-// information (fields). When you run this connector yourself in "standalone" mode or "dev" mode,
-// the account information come from ./konnector-dev-config.json file
-// cozyParameters are static parameters, independents from the account. Most often, it can be a
-// secret api key.
-async function start(fields, cozyParameters) {
-  log('info', 'Identification')
-  if (cozyParameters) log('debug', 'Paramètres trouvés')
-  await authenticate.bind(this)(fields.login, fields.password)
-  log('info', 'Vous êtes connecté')
-  const bills = await parseBill()
-
-  await this.saveBills(bills, fields, {
-    fileIdAttributes: ['vendorRef'],
-    linkBankOperations: false,
-    identifiers: ['Total energie'],
-    sourceAccount: this.accountId,
-    sourceAccountIdentifier: fields.login
-  })
-  log('info', 'Fin de la récupération')
-}
-
-async function authenticate(username, password) {
-  log('debug', 'Authentification en cours')
-  await signin({
-    url: courl,
-    formSelector: '#fz-authentificationForm',
-    formData: {
-      'tx_demmauth_authentification[authentificationForm][login]': username,
-      'tx_demmauth_authentification[authentificationForm][password]': password
-    },
-    resolveWithFullResponse: true
-  })
-    .catch(err => {
-      log('err', err)
-    })
-    .then(resp => {
-      return resp
-    })
-}
-
-async function parseBill() {
-  log('debug', 'Vérification des factures')
-  let $
-  try {
-    $ = await request(
-      `https://www.totalenergies.fr/clients/mes-factures/mes-factures-electricite/mon-historique-de-factures`
-    )
-  } catch (err) {
-    log('debug', err.message.substring(0, 60))
-    log('debug', `Pas de facture trouvée pour ce compte`)
-    return []
+class TemplateContentScript extends ContentScript {
+  // ////////
+  // PILOT //
+  // ////////
+  async ensureAuthenticated() {
+    const credentials = await this.getCredentials()
+    if (credentials) {
+      const auth = await this.authWithCredentials(credentials)
+      if (auth) {
+        return true
+      }
+      return false
+    }
+    if (!credentials) {
+      const auth = await this.authWithoutCredentials()
+      if (auth) {
+        return true
+      }
+      return false
+    }
   }
 
-  const docs = scrape(
-    $,
-    {
-      label: {
-        sel: '.detail-facture__label strong'
-      },
-      vendorRef: {
-        sel: '.text--body',
-        parse: ref => ref.match(/^N° (.*)$/).pop()
-      },
-      date: {
-        sel: '.detail-facture__date',
-        parse: date => moment(date, 'DD/MM/YYYY').toDate()
-      },
-      status: {
-        sel: '.detail-facture__statut'
-      },
-      amount: {
-        sel: '.detail-facture__montant',
-        parse: normalizeAmount
-      },
-      isEcheancier: {
-        sel: '.detail-facture__action.btn-bas-nivo2',
-        attr: 'class',
-        parse: Boolean
-      },
-      fileurl: {
-        sel: '.btn--telecharger',
-        attr: 'href'
-      },
-      subBills: {
-        sel: 'span:nth-child(1)',
-        fn: el => {
-          const $details = $(el)
-            .closest('.detail-facture')
-            .next()
+  async waitForUserAuthentication() {
+    this.log('info', 'waitForUserAuthentication starts')
+    await this.setWorkerState({ visible: true })
+    await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
+    await this.setWorkerState({ visible: false })
+  }
 
-          if ($details.hasClass('action__display-zone')) {
-            const fileurl = $details.find('.btn--telecharger').attr('href')
-            return Array.from($details.find('tbody tr'))
-              .map(el => {
-                let date = $(el)
-                  .find('td:nth-child(4)')
-                  .text()
-                  .match(/Payée le (.*)/)
-                if (date) date = moment(date.slice(1), 'DD/MM/YYYY').toDate()
-                return {
-                  amount: normalizeAmount(
-                    $(el)
-                      .find('td:nth-child(2)')
-                      .text()
-                  ),
-                  date,
-                  fileurl
-                }
-              })
-              .filter(bill => bill.date)
-          }
+  async getUserDataFromWebsite() {
+    await this.waitForElementInWorker(
+      'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+    )
+    await this.clickAndWait(
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]',
+      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+    await this.runInWorker('getIdentity')
+    if (!this.store.userIdentity) {
+      this.log(
+        'debug',
+        "Couldn't find a sourceAccountIdentifier, using default"
+      )
+      return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
+    }
+    return { sourceAccountIdentifier: this.store.userIdentity.email }
+  }
 
-          return false
-        }
-      }
-    },
-    '.detail-facture'
-  ).filter(bill => !(bill.amount === false && bill.isEcheancier === false))
-
-  const bills = []
-
-  for (const doc of docs) {
-    if (doc.subBills) {
-      for (const subBill of doc.subBills) {
-        const { vendorRef, label } = doc
-        const echDate = doc.date
-        const { amount, date, fileurl } = subBill
-        bills.push({
-          vendorRef,
-          label,
-          amount,
-          date,
-          fileurl: `https://www.totalenergies.fr${fileurl}`,
-          filename: `${utils.formatDate(echDate)}_TotalEnergies_Echéancier.pdf`,
-          vendor: 'Direct Energie',
-          fileAttributes: {
-            metadata: {
-              contentAuthor: 'totalenergies.fr',
-              issueDate: utils.formatDate(date),
-              datetime: utils.formatDate(date),
-              datetimeLabel: `issueDate`,
-              invoiceNumber: `${vendorRef}`,
-              isSubscription: true,
-              carbonCopy: true,
-              qualification: Qualification.getByLabel('energy_invoice')
-            }
-          }
-        })
-      }
-    } else {
-      const { vendorRef, label, date, fileurl, amount, status } = doc
-      const isRefund = status.includes('Remboursée')
-      bills.push({
-        vendorRef,
-        label,
-        amount,
-        date,
-        isRefund,
-        fileurl: `https://www.totalenergies.fr${fileurl}`,
-        filename: `${utils.formatDate(date)}_TotalEnergies_${amount.toFixed(
-          2
-        )}EUR_${vendorRef}.pdf`,
-        fileIdAttributes: ['vendorRef'],
-        vendor: 'Direct Energie',
-        fileAttributes: {
-          metadata: {
-            contentAuthor: 'totalenergies.fr',
-            issueDate: utils.formatDate(date),
-            datetime: utils.formatDate(date),
-            datetimeLabel: `issueDate`,
-            invoiceNumber: `${vendorRef}`,
-            isSubscription: true,
-            carbonCopy: true,
-            qualification: Qualification.getByLabel('energy_invoice')
-          }
-        }
+  async fetch(context) {
+    await this.clickAndWait(
+      'a[href="/clients/mes-factures"]',
+      'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+    )
+    await this.clickAndWait(
+      'a[href="/clients/mes-factures/mon-historique-de-factures"]',
+      '.detail-facture'
+    )
+    const billsDone = await this.runInWorker('getBills')
+    if (billsDone) {
+      await this.clickAndWait(
+        'a[href="/clients/mon-compte/mon-contrat"]',
+        '.cadre2'
+      )
+      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
+      await this.runInWorker('getContract')
+      await this.saveIdentity(this.store.userIdentity)
+      await this.saveBills(this.store.allDocuments, {
+        context,
+        fileIdAttributes: ['vendorRef', 'filename'],
+        contentType: 'application/pdf',
+        qualificationLabel: 'energy_invoice'
+      })
+      await this.saveFiles(this.store.contract, {
+        context,
+        fileIdAttributes: ['filename'],
+        contentType: 'application/pdf',
+        qualificationLabel: 'energy_contract'
       })
     }
   }
-  return bills
+
+  async authWithCredentials(credentials) {
+    this.log('info', 'auth with credentials starts')
+    await this.goto(baseUrl)
+    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
+    await this.runInWorker('clickLoginPage')
+    await Promise.race([
+      this.waitForElementInWorker('.menu-btn--deconnexion'),
+      this.waitForElementInWorker('#formz-authentification-form-login')
+    ])
+    const alreadyLoggedIn = await this.runInWorker('checkIfLogged')
+    if (alreadyLoggedIn) {
+      return true
+    } else {
+      await this.tryAutoLogin(credentials)
+    }
+  }
+
+  async authWithoutCredentials() {
+    this.log('info', 'auth without credentials starts')
+    await this.goto(baseUrl)
+    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
+    await this.runInWorker('clickLoginPage')
+    const maintenanceStatus = await this.runInWorker('checkMaintenanceStatus')
+    if (maintenanceStatus) {
+      throw new Error('VENDOR_DOWN')
+    }
+    await this.waitForElementInWorker('#formz-authentification-form-password')
+    await this.waitForUserAuthentication()
+    await this.saveCredentials(this.store.userCredentials)
+    return true
+  }
+
+  async tryAutoLogin(credentials) {
+    this.log('debug', 'Trying auto login')
+    await this.autoLogin(credentials)
+    if (await this.checkAuthenticated()) {
+      return true
+    }
+  }
+
+  async autoLogin(credentials) {
+    this.log('info', 'AutoLogin starts')
+    await this.waitForElementInWorker('#formz-authentification-form-login')
+    await this.runInWorker('fillingForm', credentials)
+    await this.runInWorker(
+      'click',
+      '#formz-authentification-form-reste-connecte'
+    )
+    await this.runInWorker('click', '#js--btn-validation')
+  }
+
+  // ////////
+  // WORKER//
+  // ////////
+
+  async checkAuthenticated() {
+    const loginField = document.querySelector(
+      '#formz-authentification-form-login'
+    )
+    const passwordField = document.querySelector(
+      '#formz-authentification-form-password'
+    )
+    if (loginField && passwordField) {
+      const userCredentials = await this.findAndSendCredentials.bind(this)(
+        loginField,
+        passwordField
+      )
+      this.log('debug', 'Sendin userCredentials to Pilot')
+      this.sendToPilot({
+        userCredentials
+      })
+    }
+    if (
+      document.location.href === HOMEPAGE_URL &&
+      document.querySelector('.menu-btn--deconnexion')
+    ) {
+      this.log('info', 'Auth Check succeeded')
+      return true
+    }
+    return false
+  }
+
+  async findAndSendCredentials(login, password) {
+    this.log('debug', 'findAndSendCredentials starts')
+    let userLogin = login.value
+    let userPassword = password.value
+    const userCredentials = {
+      login: userLogin,
+      password: userPassword
+    }
+    return userCredentials
+  }
+
+  async clickLoginPage() {
+    const loginPageButton = this.getLoginPageButton()
+    if (loginPageButton) {
+      loginPageButton.click()
+      return true
+    }
+    this.log('debug', 'No loginPage found')
+    return false
+  }
+
+  getLoginPageButton() {
+    const loginPageButton = document.querySelector('a[class="menu-p-btn-ec"]')
+    return loginPageButton
+  }
+
+  async checkMaintenanceStatus() {
+    const isInMaintenance = this.checkMaintenanceMessage()
+    if (isInMaintenance) {
+      return true
+    }
+    return false
+  }
+
+  checkMaintenanceMessage() {
+    const maintenanceMessage = document.querySelector('.big').innerHTML
+    if (
+      document.location.href === MAINTENANCE_URL &&
+      maintenanceMessage === 'Notre site est actuellement en maintenance.'
+    ) {
+      return true
+    } else {
+      return false
+    }
+  }
+
+  async checkIfLogged() {
+    if (document.querySelector('.menu-btn--deconnexion')) {
+      return true
+    }
+    return false
+  }
+
+  fillingForm(credentials) {
+    const loginField = document.querySelector(
+      '#formz-authentification-form-login'
+    )
+    const passwordField = document.querySelector(
+      '#formz-authentification-form-password'
+    )
+    this.log('debug', 'Filling fields with credentials')
+    loginField.value = credentials.login
+    passwordField.value = credentials.password
+  }
+
+  async getIdentity() {
+    this.log('info', 'getIdentity starts')
+    const infosElements = document.querySelectorAll('.cadre2')
+    const familyName = infosElements[0].children[0].textContent.split(':')[1]
+    const name = infosElements[0].children[1].textContent.split(':')[1]
+    const clientRef = infosElements[0].children[2].textContent.split(':')[1]
+    const phoneNumber = infosElements[1].children[0].textContent.split(':')[1]
+    const email = infosElements[1].children[1].textContent.split(':')[1].trim()
+    const rawAddress = infosElements[2].children[0].textContent.replace(
+      / {2}/g,
+      ' '
+    )
+    const splittedAddress = rawAddress.match(
+      /([0-9]*) ([A-Za-z\s-]*) ([0-9]{5}) ([A-Za-z0-9-\s/]*)/
+    )
+    const [fullAddress, houseNumber, street, postCode, city] = splittedAddress
+    const userIdentity = {
+      email,
+      clientRef,
+      name: {
+        givenName: name,
+        familyName
+      },
+      address: [
+        {
+          formattedAddress: fullAddress,
+          houseNumber,
+          street,
+          postCode,
+          city
+        }
+      ],
+      phone: [
+        {
+          type: phoneNumber.match(/^06|07|\+336|\+337/g) ? 'mobile' : 'home',
+          number: phoneNumber
+        }
+      ]
+    }
+    await this.sendToPilot({ userIdentity })
+  }
+
+  async getBills() {
+    this.log('info', 'getBills starts')
+    const invoices = await this.getInvoices()
+    const schedules = await this.getSchedules()
+    const allDocuments = await this.computeInformations(invoices, schedules)
+    await this.sendToPilot({ allDocuments })
+    return true
+  }
+
+  async getContract() {
+    this.log('info', 'getContract starts')
+    const contractElement = document.querySelector('.cadre2')
+    const offerName = contractElement.querySelector('h2').innerHTML
+    const rawStartDate = contractElement.querySelector(
+      'p[class="font-700"]'
+    ).innerHTML
+    const splittedStartDate = rawStartDate.split('/')
+    const day = splittedStartDate[0]
+    const month = splittedStartDate[1]
+    const year = splittedStartDate[2]
+    const startDate = new Date(year, month, day)
+    const href = contractElement
+      .querySelectorAll('.ml-std')[1]
+      .children[1].getAttribute('href')
+    const fileurl = `https://www.totalenergies.fr${href}`
+    const filename = `${year}-${month}-${day}_TotalEnergie_Contrat_${offerName.replaceAll(
+      ' ',
+      '-'
+    )}.pdf`
+    const contract = [
+      {
+        filename,
+        fileurl,
+        fileIdAttributes: ['filename'],
+        vendor: 'Total Energies',
+        offerName,
+        fileAttributes: {
+          metadata: {
+            contentAuthor: 'totalenergies.fr',
+            issueDate: new Date(),
+            datetime: startDate,
+            datetimeLabel: 'startDate',
+            carbonCopy: true
+          }
+        }
+      }
+    ]
+    await this.sendToPilot({ contract })
+  }
+
+  getInvoices() {
+    const invoices = document.querySelectorAll('div[class="detail-facture"]')
+    return invoices
+  }
+
+  getSchedules() {
+    const schedulesInfos = document.querySelectorAll(
+      '.action__condition-conteneur-label'
+    )
+    // const schedulesUrl = document.querySelectorAll('.action__display-zone > div[class="text-center mt-std"] > a')
+    let schedules = []
+    for (let i = 0; i < schedulesInfos.length; i++) {
+      const schedulesObject = {
+        element: schedulesInfos[i],
+        downloadButton:
+          schedulesInfos[i].nextElementSibling.children[1].children[0]
+      }
+      schedules.push(schedulesObject)
+    }
+    return schedules
+  }
+
+  computeInformations(invoices, schedules) {
+    let computedInvoices = []
+    for (let i = 0; i < invoices.length; i++) {
+      const vendorRef =
+        invoices[i].children[0].children[2].innerHTML.match(/N° (.*)/)[1]
+      const docTitle = invoices[i].children[0].children[0].innerHTML
+      const rawDate = invoices[i].children[1].innerHTML
+      const splitDate = rawDate.split('/')
+      const day = splitDate[0]
+      const month = splitDate[1]
+      const year = splitDate[2]
+      const rawPaymentStatus = invoices[i].children[2].innerHTML
+      const paymentStatus = this.findBillStatus(rawPaymentStatus)
+      const rawAmount = invoices[i].children[3].innerHTML.match(
+        /([0-9]){1,},([0-9]){1,2}/g
+      )
+      const rawCurrency = invoices[i].children[3].innerHTML.match(/€|\$|£/g)
+      const currency = rawCurrency === '€' ? 'EUR' : rawCurrency[0]
+      const href = invoices[i].children[4].getAttribute('href')
+      const fileurl = `https://www.totalenergies.fr${href}`
+      const amount = parseFloat(rawAmount[0].replace(',', '.'))
+      const date = new Date(`${month}/${day}/${year}`)
+      let invoice = {
+        docTitle,
+        filename: `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+          / /g,
+          '-'
+        )}_${amount}${currency}.pdf`,
+        vendorRef,
+        amount,
+        date,
+        currency,
+        fileurl,
+        fileIdAttributes: ['vendorRef'],
+        vendor: 'Total Energies',
+        fileAttributes: {
+          metadata: {
+            contentAuthor: 'totalenergies.fr',
+            issueDate: new Date(),
+            datetime: date,
+            datetimeLabel: `issueDate`,
+            invoiceNumber: `${vendorRef}`,
+            isSubscription: true,
+            carbonCopy: true
+          }
+        }
+      }
+      switch (paymentStatus) {
+        case 'Paid':
+          invoice.paymentStatus = paymentStatus
+          invoice.paymentStatusDate = rawPaymentStatus.match(
+            /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
+          )[0]
+          break
+        case 'Refunded':
+          invoice.paymentStatus = paymentStatus
+          invoice.paymentStatusDate = rawPaymentStatus.match(
+            /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
+          )[0]
+          invoice.isRefund = true
+          break
+        default:
+          invoice.paymentStatus = paymentStatus
+          break
+      }
+      computedInvoices.push(invoice)
+    }
+    let computedSchedules = []
+    for (let j = 0; j < schedules.length; j++) {
+      const vendorRef =
+        schedules[j].element.children[0].children[2].innerHTML.match(
+          /N° (.*)/
+        )[1]
+      const docTitle = schedules[j].element.children[0].children[0].innerHTML
+      const rawDate = schedules[j].element.children[1].innerHTML
+      const splitDate = rawDate.split('/')
+      const day = splitDate[0]
+      const month = splitDate[1]
+      const year = splitDate[2]
+      const rawPaymentStatus = schedules[j].element.children[2].innerHTML
+      const paymentStatus = this.findBillStatus(rawPaymentStatus)
+      const rawAmount = schedules[j].element.children[3].innerHTML.match(
+        /([0-9]){1,},([0-9]){1,2}/g
+      )
+      const rawCurrency =
+        schedules[j].element.children[3].innerHTML.match(/€|\$|£/g)
+      const currency = rawCurrency === '€' ? 'EUR' : rawCurrency[0]
+      const href = schedules[j].downloadButton.getAttribute('href')
+      const fileurl = `https://www.totalenergies.fr${href}`
+      const amount = parseFloat(rawAmount[0].replace(',', '.'))
+      const date = new Date(`${month}/${day}/${year}`)
+      let schedule = {
+        docTitle,
+        filename: `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+          / /g,
+          '-'
+        )}_${amount}${currency}.pdf`,
+        vendorRef,
+        amount,
+        date,
+        currency,
+        fileurl,
+        fileIdAttributes: ['vendorRef'],
+        vendor: 'Total Energies',
+        fileAttributes: {
+          metadata: {
+            contentAuthor: 'totalenergies.fr',
+            issueDate: new Date(),
+            datetime: date,
+            datetimeLabel: `issueDate`,
+            invoiceNumber: `${vendorRef}`,
+            isSubscription: true,
+            carbonCopy: true
+          }
+        }
+      }
+      switch (paymentStatus) {
+        case 'Paid':
+          schedule.paymentStatus = paymentStatus
+          schedule.paymentStatusDate = rawPaymentStatus.match(
+            /([0-9]{2}\/[0-9]{2}\/[0-9]{4})/
+          )
+          break
+        case 'Refunded':
+          schedule.paymentStatus = paymentStatus
+          schedule.paymentStatusDate = rawPaymentStatus.match(
+            /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/
+          )
+          schedule.isRefunded = true
+          break
+        default:
+          schedule.paymentStatus = paymentStatus
+          break
+      }
+      computedSchedules.push(schedule)
+    }
+    const computedDocs = computedInvoices.concat(computedSchedules)
+    return computedDocs
+  }
+
+  findBillStatus(rawPaymentStatus) {
+    if (rawPaymentStatus.match('Payée')) {
+      return 'Paid'
+    } else if (rawPaymentStatus.match('Terminé')) {
+      return 'Ended'
+    } else if (rawPaymentStatus.match('Remboursée')) {
+      return 'Refunded'
+    } else {
+      this.log('debug', 'Unknown status, returning as it is')
+      return rawPaymentStatus
+    }
+  }
+
+  checkInfosPageTitle() {
+    const pageTitle = document.querySelector(
+      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+    ).textContent
+    if (pageTitle === ' Mes infos de contact ') {
+      return true
+    }
+    return false
+  }
+
+  checkContractPageTitle() {
+    const pageTitle = document.querySelector(
+      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+    ).textContent
+    if (pageTitle === ' Mon contrat ') {
+      return true
+    }
+    return false
+  }
 }
 
-const normalizeAmount = amount => {
-  if (amount.includes('/')) return false
-  return parseFloat(
-    amount
-      .replace('€', '')
-      .replace(',', '.')
-      .replace(' ', '')
-      .trim()
-  )
-}
+const connector = new TemplateContentScript()
+connector
+  .init({
+    additionalExposedMethodsNames: [
+      'clickLoginPage',
+      'checkMaintenanceStatus',
+      'getBills',
+      'fillingForm',
+      'checkIfLogged',
+      'getIdentity',
+      'getContract',
+      'checkInfosPageTitle',
+      'checkContractPageTitle'
+    ]
+  })
+  .catch(err => {
+    log.warn(err)
+  })
