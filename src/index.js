@@ -59,6 +59,9 @@ class TemplateContentScript extends ContentScript {
   }
 
   async fetch(context) {
+    if (this.store.userCredentials) {
+      await this.saveCredentials(this.store.userCredentials)
+    }
     await this.clickAndWait(
       'a[href="/clients/mes-factures"]',
       'a[href="/clients/mes-factures/mon-historique-de-factures"]'
@@ -75,9 +78,6 @@ class TemplateContentScript extends ContentScript {
       )
       await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
       await this.runInWorker('getContract')
-      if (this.store.userCredentials) {
-        await this.saveCredentials(this.store.userCredentials)
-      }
       await this.saveIdentity(this.store.userIdentity)
       await this.saveBills(this.store.allDocuments, {
         context,
