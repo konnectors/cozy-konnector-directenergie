@@ -75,6 +75,9 @@ class TemplateContentScript extends ContentScript {
       )
       await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
       await this.runInWorker('getContract')
+      if (this.store.userCredentials) {
+        await this.saveCredentials(this.store.userCredentials)
+      }
       await this.saveIdentity(this.store.userIdentity)
       await this.saveBills(this.store.allDocuments, {
         context,
@@ -119,7 +122,6 @@ class TemplateContentScript extends ContentScript {
     }
     await this.waitForElementInWorker('#formz-authentification-form-password')
     await this.waitForUserAuthentication()
-    await this.saveCredentials(this.store.userCredentials)
     return true
   }
 
