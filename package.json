@@ -1,15 +1,15 @@
 {
   "name": "cozy-konnector-directenergie",
   "version": "2.1.0",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "repository": {
     "type": "git",
     "url": "git@github.com:konnectors/cozy-konnector-directenergie.git"
   },
   "dependencies": {
-    "@cozy/minilog": "1.0.0",
-    "cozy-clisk": "^0.7.0",
-    "date-fns": "2.29.3"
+    "@cozy/minilog": "^1.0.0",
+    "cozy-clisk": "^0.8.0",
+    "date-fns": "^2.29.3"
   },
   "eslintConfig": {
     "extends": [
