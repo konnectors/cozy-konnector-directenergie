@@ -13,7 +13,20 @@ class TemplateContentScript extends ContentScript {
   // ////////
   // PILOT //
   // ////////
+  async navigateToLoginForm() {
+    await this.goto(baseUrl)
+    await this.waitForElementInWorker('.menu-p-btn-ec')
+    await this.runInWorker('click', '.menu-p-btn-ec')
+    await Promise.race([
+      this.waitForElementInWorker('#formz-authentification-form-login'),
+      this.waitForElementInWorker(
+        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      )
+    ])
+  }
+
   async ensureAuthenticated() {
+    await this.navigateToLoginForm()
     const credentials = await this.getCredentials()
     if (credentials) {
       const auth = await this.authWithCredentials(credentials)
@@ -29,6 +42,23 @@ class TemplateContentScript extends ContentScript {
       }
       return false
     }
+  }
+
+  async ensureNotAuthenticated() {
+    this.log('info', 'ensureNotAuthenticated starts')
+    await this.navigateToLoginForm()
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'not auth returning true')
+      return true
+    }
+    this.log('info', 'auth detected, logging out')
+    await this.runInWorker(
+      'click',
+      'a[href*="/clients/connexion?logintype=logout"]'
+    )
+    await this.waitForElementInWorker('#formz-authentification-form-login')
+    return true
   }
 
   async waitForUserAuthentication() {
@@ -165,9 +195,20 @@ class TemplateContentScript extends ContentScript {
         userCredentials
       })
     }
+    // Here the type of check depend on session.
+    // If the session is active at konnector start, then the landing page is '/clients/accueil'
+    // If the connection has just been made (by the user or with autoLogin), we land on the second if's url (HOMEPAGE_URL)
+    if (
+      document.location.href ===
+        'https://www.totalenergies.fr/clients/accueil' &&
+      document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
+    ) {
+      this.log('info', 'connected from session')
+      return true
+    }
     if (
       document.location.href === HOMEPAGE_URL &&
-      document.querySelector('.menu-btn--deconnexion')
+      document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
     ) {
       this.log('info', 'Auth Check succeeded')
       return true
