@@ -550,7 +550,7 @@ class TemplateContentScript extends ContentScript {
 
   checkInfosPageTitle() {
     const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     ).textContent
     if (pageTitle === ' Mes infos de contact ') {
       return true
@@ -560,7 +560,7 @@ class TemplateContentScript extends ContentScript {
 
   checkContractPageTitle() {
     const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     ).textContent
     if (pageTitle === ' Mon contrat ') {
       return true
