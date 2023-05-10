@@ -69,12 +69,16 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getUserDataFromWebsite() {
+    this.log('info', 'getUserDataFromWebsite starts')
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/gerer-mes-comptes"]'
     )
-    await this.clickAndWait(
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]',
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
     await this.runInWorker('getIdentity')
@@ -89,6 +93,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async fetch(context) {
+    this.log('info', 'fetch starts')
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
@@ -126,9 +131,6 @@ class TemplateContentScript extends ContentScript {
 
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
-    await this.goto(baseUrl)
-    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
-    await this.runInWorker('clickLoginPage')
     await Promise.race([
       this.waitForElementInWorker('.menu-btn--deconnexion'),
       this.waitForElementInWorker('#formz-authentification-form-login')
@@ -138,14 +140,25 @@ class TemplateContentScript extends ContentScript {
       return true
     } else {
       await this.tryAutoLogin(credentials)
+      await Promise.race([
+        this.waitForElementInWorker('#captcha_audio'),
+        this.waitForElementInWorker(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        )
+      ])
+      const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
+      if (isAskingCaptcha) {
+        this.log(
+          'info',
+          'Webiste is asking for captcha completion. Showing page to user'
+        )
+        await this.waitForUserAuthentication()
+      }
     }
   }
 
   async authWithoutCredentials() {
     this.log('info', 'auth without credentials starts')
-    await this.goto(baseUrl)
-    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
-    await this.runInWorker('clickLoginPage')
     const maintenanceStatus = await this.runInWorker('checkMaintenanceStatus')
     if (maintenanceStatus) {
       throw new Error('VENDOR_DOWN')
@@ -179,6 +192,7 @@ class TemplateContentScript extends ContentScript {
   // ////////
 
   async checkAuthenticated() {
+    this.log('info', 'checkAuthenticated starts')
     const loginField = document.querySelector(
       '#formz-authentification-form-login'
     )
@@ -567,6 +581,17 @@ class TemplateContentScript extends ContentScript {
     }
     return false
   }
+
+  checkIfAskingCaptcha() {
+    this.log('info', 'checkIfAskingCaptcha starts')
+    const isCaptchaPage = document.querySelector('#captcha_audio')
+    const captchaTitle = document.querySelector('h2').textContent
+
+    if (isCaptchaPage && captchaTitle === 'Non, je ne suis pas un robot !') {
+      return true
+    }
+    return false
+  }
 }
 
 const connector = new TemplateContentScript()
@@ -581,7 +606,8 @@ connector
       'getIdentity',
       'getContract',
       'checkInfosPageTitle',
-      'checkContractPageTitle'
+      'checkContractPageTitle',
+      'checkIfAskingCaptcha'
     ]
   })
   .catch(err => {
