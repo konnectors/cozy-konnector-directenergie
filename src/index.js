@@ -13,7 +13,20 @@ class TemplateContentScript extends ContentScript {
   // ////////
   // PILOT //
   // ////////
+  async navigateToLoginForm() {
+    await this.goto(baseUrl)
+    await this.waitForElementInWorker('.menu-p-btn-ec')
+    await this.runInWorker('click', '.menu-p-btn-ec')
+    await Promise.race([
+      this.waitForElementInWorker('#formz-authentification-form-login'),
+      this.waitForElementInWorker(
+        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      )
+    ])
+  }
+
   async ensureAuthenticated() {
+    await this.navigateToLoginForm()
     const credentials = await this.getCredentials()
     if (credentials) {
       const auth = await this.authWithCredentials(credentials)
@@ -31,6 +44,23 @@ class TemplateContentScript extends ContentScript {
     }
   }
 
+  async ensureNotAuthenticated() {
+    this.log('info', 'ensureNotAuthenticated starts')
+    await this.navigateToLoginForm()
+    const authenticated = await this.runInWorker('checkAuthenticated')
+    if (!authenticated) {
+      this.log('info', 'not auth returning true')
+      return true
+    }
+    this.log('info', 'auth detected, logging out')
+    await this.runInWorker(
+      'click',
+      'a[href*="/clients/connexion?logintype=logout"]'
+    )
+    await this.waitForElementInWorker('#formz-authentification-form-login')
+    return true
+  }
+
   async waitForUserAuthentication() {
     this.log('info', 'waitForUserAuthentication starts')
     await this.setWorkerState({ visible: true })
@@ -39,12 +69,16 @@ class TemplateContentScript extends ContentScript {
   }
 
   async getUserDataFromWebsite() {
+    this.log('info', 'getUserDataFromWebsite starts')
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/gerer-mes-comptes"]'
     )
-    await this.clickAndWait(
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]',
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
     await this.runInWorker('getIdentity')
@@ -59,6 +93,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   async fetch(context) {
+    this.log('info', 'fetch starts')
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
@@ -96,9 +131,6 @@ class TemplateContentScript extends ContentScript {
 
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
-    await this.goto(baseUrl)
-    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
-    await this.runInWorker('clickLoginPage')
     await Promise.race([
       this.waitForElementInWorker('.menu-btn--deconnexion'),
       this.waitForElementInWorker('#formz-authentification-form-login')
@@ -108,14 +140,25 @@ class TemplateContentScript extends ContentScript {
       return true
     } else {
       await this.tryAutoLogin(credentials)
+      await Promise.race([
+        this.waitForElementInWorker('#captcha_audio'),
+        this.waitForElementInWorker(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        )
+      ])
+      const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
+      if (isAskingCaptcha) {
+        this.log(
+          'info',
+          'Webiste is asking for captcha completion. Showing page to user'
+        )
+        await this.waitForUserAuthentication()
+      }
     }
   }
 
   async authWithoutCredentials() {
     this.log('info', 'auth without credentials starts')
-    await this.goto(baseUrl)
-    await this.waitForElementInWorker('a[class="menu-p-btn-ec"]')
-    await this.runInWorker('clickLoginPage')
     const maintenanceStatus = await this.runInWorker('checkMaintenanceStatus')
     if (maintenanceStatus) {
       throw new Error('VENDOR_DOWN')
@@ -149,6 +192,7 @@ class TemplateContentScript extends ContentScript {
   // ////////
 
   async checkAuthenticated() {
+    this.log('info', 'checkAuthenticated starts')
     const loginField = document.querySelector(
       '#formz-authentification-form-login'
     )
@@ -165,9 +209,20 @@ class TemplateContentScript extends ContentScript {
         userCredentials
       })
     }
+    // Here the type of check depend on session.
+    // If the session is active at konnector start, then the landing page is '/clients/accueil'
+    // If the connection has just been made (by the user or with autoLogin), we land on the second if's url (HOMEPAGE_URL)
+    if (
+      document.location.href ===
+        'https://www.totalenergies.fr/clients/accueil' &&
+      document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
+    ) {
+      this.log('info', 'connected from session')
+      return true
+    }
     if (
       document.location.href === HOMEPAGE_URL &&
-      document.querySelector('.menu-btn--deconnexion')
+      document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
     ) {
       this.log('info', 'Auth Check succeeded')
       return true
@@ -509,7 +564,7 @@ class TemplateContentScript extends ContentScript {
 
   checkInfosPageTitle() {
     const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     ).textContent
     if (pageTitle === ' Mes infos de contact ') {
       return true
@@ -519,9 +574,20 @@ class TemplateContentScript extends ContentScript {
 
   checkContractPageTitle() {
     const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl text-center d-block mt-std--medium-down"]'
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
     ).textContent
     if (pageTitle === ' Mon contrat ') {
+      return true
+    }
+    return false
+  }
+
+  checkIfAskingCaptcha() {
+    this.log('info', 'checkIfAskingCaptcha starts')
+    const isCaptchaPage = document.querySelector('#captcha_audio')
+    const captchaTitle = document.querySelector('h2').textContent
+
+    if (isCaptchaPage && captchaTitle === 'Non, je ne suis pas un robot !') {
       return true
     }
     return false
@@ -540,7 +606,8 @@ connector
       'getIdentity',
       'getContract',
       'checkInfosPageTitle',
-      'checkContractPageTitle'
+      'checkContractPageTitle',
+      'checkIfAskingCaptcha'
     ]
   })
   .catch(err => {
