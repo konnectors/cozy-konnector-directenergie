@@ -132,7 +132,9 @@ class TemplateContentScript extends ContentScript {
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
     await Promise.race([
-      this.waitForElementInWorker('.menu-btn--deconnexion'),
+      this.waitForElementInWorker(
+        'a[href*="/clients/connexion?logintype=logout"]'
+      ),
       this.waitForElementInWorker('#formz-authentification-form-login')
     ])
     const alreadyLoggedIn = await this.runInWorker('checkIfLogged')
@@ -265,7 +267,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   checkMaintenanceMessage() {
-    const maintenanceMessage = document.querySelector('.big').innerHTML
+    const maintenanceMessage = document.querySelector('.big')?.innerHTML
     if (
       document.location.href === MAINTENANCE_URL &&
       maintenanceMessage === 'Notre site est actuellement en maintenance.'
@@ -277,7 +279,9 @@ class TemplateContentScript extends ContentScript {
   }
 
   async checkIfLogged() {
-    if (document.querySelector('.menu-btn--deconnexion')) {
+    if (
+      document.querySelector('a[href*="/clients/connexion?logintype=logout"]')
+    ) {
       return true
     }
     return false
