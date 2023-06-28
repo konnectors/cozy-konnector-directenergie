@@ -270,8 +270,12 @@ class TemplateContentScript extends ContentScript {
     const maintenanceMessage = document.querySelector('.big')?.innerHTML
     if (
       document.location.href === MAINTENANCE_URL &&
-      maintenanceMessage === 'Notre site est actuellement en maintenance.'
+      maintenanceMessage.includes('maintenance')
     ) {
+      this.log('warn', 'Website is under maintenance')
+      return true
+    } else if (document.location.href === MAINTENANCE_URL) {
+      this.log('warn', `Website encounter a problem : ${maintenanceMessage}`)
       return true
     } else {
       return false
