@@ -89,6 +89,7 @@ class TemplateContentScript extends ContentScript {
       )
       return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
+    await this.saveIdentity(this.store.userIdentity)
     return { sourceAccountIdentifier: this.store.userIdentity.email }
   }
 
@@ -107,19 +108,18 @@ class TemplateContentScript extends ContentScript {
     )
     const billsDone = await this.runInWorker('getBills')
     if (billsDone) {
-      await this.clickAndWait(
-        'a[href="/clients/mon-compte/mon-contrat"]',
-        '.cadre2'
-      )
-      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
-      await this.runInWorker('getContract')
-      await this.saveIdentity(this.store.userIdentity)
       await this.saveBills(this.store.allDocuments, {
         context,
         fileIdAttributes: ['vendorRef', 'filename'],
         contentType: 'application/pdf',
         qualificationLabel: 'energy_invoice'
       })
+      await this.clickAndWait(
+        'a[href="/clients/mon-compte/mon-contrat"]',
+        '.cadre2'
+      )
+      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
+      await this.runInWorker('getContract')
       await this.saveFiles(this.store.contract, {
         context,
         fileIdAttributes: ['filename'],
