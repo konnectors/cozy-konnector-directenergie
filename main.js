@@ -5300,7 +5300,11 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     ])
   }
 
-  async ensureAuthenticated() {
+  async ensureAuthenticated({ account }) {
+    this.log('info', 'ensaureAuthenticated starts')
+    if (!account) {
+      await this.ensureNotAuthenticated()
+    }
     await this.navigateToLoginForm()
     const credentials = await this.getCredentials()
     if (credentials) {
@@ -5364,6 +5368,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       )
       return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
+    await this.saveIdentity(this.store.userIdentity)
     return { sourceAccountIdentifier: this.store.userIdentity.email }
   }
 
@@ -5382,19 +5387,18 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     )
     const billsDone = await this.runInWorker('getBills')
     if (billsDone) {
-      await this.clickAndWait(
-        'a[href="/clients/mon-compte/mon-contrat"]',
-        '.cadre2'
-      )
-      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
-      await this.runInWorker('getContract')
-      await this.saveIdentity(this.store.userIdentity)
       await this.saveBills(this.store.allDocuments, {
         context,
         fileIdAttributes: ['vendorRef', 'filename'],
         contentType: 'application/pdf',
         qualificationLabel: 'energy_invoice'
       })
+      await this.clickAndWait(
+        'a[href="/clients/mon-compte/mon-contrat"]',
+        '.cadre2'
+      )
+      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
+      await this.runInWorker('getContract')
       await this.saveFiles(this.store.contract, {
         context,
         fileIdAttributes: ['filename'],
@@ -5407,7 +5411,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
     await Promise.race([
-      this.waitForElementInWorker('.menu-btn--deconnexion'),
+      this.waitForElementInWorker(
+        'a[href*="/clients/connexion?logintype=logout"]'
+      ),
       this.waitForElementInWorker('#formz-authentification-form-login')
     ])
     const alreadyLoggedIn = await this.runInWorker('checkIfLogged')
@@ -5540,11 +5546,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   checkMaintenanceMessage() {
-    const maintenanceMessage = document.querySelector('.big').innerHTML
+    const maintenanceMessage = document.querySelector('.big')?.innerHTML
     if (
       document.location.href === MAINTENANCE_URL &&
-      maintenanceMessage === 'Notre site est actuellement en maintenance.'
+      maintenanceMessage.includes('maintenance')
     ) {
+      this.log('warn', 'Website is under maintenance')
+      return true
+    } else if (document.location.href === MAINTENANCE_URL) {
+      this.log('warn', `Website encounter a problem : ${maintenanceMessage}`)
       return true
     } else {
       return false
@@ -5552,7 +5562,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async checkIfLogged() {
-    if (document.querySelector('.menu-btn--deconnexion')) {
+    if (
+      document.querySelector('a[href*="/clients/connexion?logintype=logout"]')
+    ) {
       return true
     }
     return false
