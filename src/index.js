@@ -8,6 +8,7 @@ const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
 const DEFAULT_SOURCE_ACCOUNT_IDENTIFIER = 'total energie'
+let numberOfContracts = 1
 
 class TemplateContentScript extends ContentScript {
   // ////////
@@ -74,6 +75,29 @@ class TemplateContentScript extends ContentScript {
 
   async getUserDataFromWebsite() {
     this.log('info', 'getUserDataFromWebsite starts')
+    if (
+      await this.evaluateInWorker(() => {
+        if (document.location.href.includes('/clients/selection-compte'))
+          return true
+        else return false
+      })
+    ) {
+      await this.waitForElementInWorker('.cadre2')
+      const foundContractsNumber = await this.evaluateInWorker(() => {
+        const contractElements = document.querySelectorAll('.cadre2')
+        let foundContractsLength = contractElements.length
+        return foundContractsLength
+      })
+      this.log('info', `Found ${foundContractsNumber} contracts`)
+      numberOfContracts = foundContractsNumber
+      this.log('info', `NumberOfContracts is ${numberOfContracts} contracts`)
+      await this.evaluateInWorker(() => {
+        const contractElements = document.querySelectorAll('.cadre2')
+        contractElements[0]
+          .querySelector('a[href*="/clients/selection-compte?tx_demmcompte"]')
+          .click()
+      })
+    }
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/gerer-mes-comptes"]'
     )
@@ -86,19 +110,18 @@ class TemplateContentScript extends ContentScript {
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
     await this.runInWorker('getIdentity')
-    if (!this.store.userIdentity) {
-      this.log(
-        'debug',
-        "Couldn't find a sourceAccountIdentifier, using default"
+    if (this.store.userIdentity) {
+      return { sourceAccountIdentifier: this.store.userIdentity.email }
+    } else {
+      throw new Error(
+        'No sourceAccountIdentifier, the konnector should be fixed'
       )
-      return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
     }
-    await this.saveIdentity(this.store.userIdentity)
-    return { sourceAccountIdentifier: this.store.userIdentity.email }
   }
 
   async fetch(context) {
     this.log('info', 'fetch starts')
+    await this.saveIdentity(this.store.userIdentity)
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
@@ -150,7 +173,8 @@ class TemplateContentScript extends ContentScript {
         this.waitForElementInWorker('#captcha_audio'),
         this.waitForElementInWorker(
           'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        )
+        ),
+        this.waitForElementInWorker('.cadre2')
       ])
       const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
       if (isAskingCaptcha) {
@@ -231,6 +255,10 @@ class TemplateContentScript extends ContentScript {
       document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
     ) {
       this.log('info', 'Auth Check succeeded')
+      return true
+    }
+    if (document.location.href.includes('/clients/selection-compte')) {
+      this.log('info', 'Auth check OK, need to choose a contract')
       return true
     }
     return false
@@ -319,10 +347,20 @@ class TemplateContentScript extends ContentScript {
       / {2}/g,
       ' '
     )
-    const splittedAddress = rawAddress.match(
-      /([0-9]*) ([A-Za-z\s-]*) ([0-9]{5}) ([A-Za-z0-9-\s/]*)/
-    )
-    const [fullAddress, houseNumber, street, postCode, city] = splittedAddress
+    let splittedAddress
+    if (rawAddress.includes('<Br/>')) {
+      let cleanedAddress
+      cleanedAddress = rawAddress.replace(/ <Br\/>/g, '')
+      splittedAddress = cleanedAddress.match(
+        /([0-9A-Za-z-'\s]*) ([\d]{5}) ([a-zA-Z-']*)/
+      )
+    } else {
+      splittedAddress = rawAddress.match(
+        /([0-9A-Za-z-'\s]*) ([\d]{5}) ([a-zA-Z-']*)/
+      )
+    }
+    const [fullAddress, street, postCode, city] = splittedAddress
+
     const userIdentity = {
       email,
       clientRef,
@@ -333,7 +371,6 @@ class TemplateContentScript extends ContentScript {
       address: [
         {
           formattedAddress: fullAddress,
-          houseNumber,
           street,
           postCode,
           city
@@ -346,6 +383,7 @@ class TemplateContentScript extends ContentScript {
         }
       ]
     }
+    this.log('info', `userIdentity found : ${JSON.stringify(userIdentity)}`)
     await this.sendToPilot({ userIdentity })
   }
 
@@ -597,7 +635,7 @@ class TemplateContentScript extends ContentScript {
   checkIfAskingCaptcha() {
     this.log('info', 'checkIfAskingCaptcha starts')
     const isCaptchaPage = document.querySelector('#captcha_audio')
-    const captchaTitle = document.querySelector('h2').textContent
+    const captchaTitle = document.querySelector('h2')?.textContent
 
     if (isCaptchaPage && captchaTitle === 'Non, je ne suis pas un robot !') {
       return true
