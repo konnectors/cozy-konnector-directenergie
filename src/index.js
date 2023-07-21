@@ -110,6 +110,16 @@ class TemplateContentScript extends ContentScript {
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
     await this.runInWorker('getIdentity')
+    if (numberOfContracts > 1) {
+      this.log('info', 'Found more than 1 contract, fetching addresses')
+      await this.goto('https://www.totalenergies.fr/clients/selection-compte')
+      await this.waitForElementInWorker('a[href*="/clients/selection-compte"]')
+      const addresses = await this.runInWorker('getOtherContractsAddresses')
+      for (const address of addresses) {
+        this.store.userIdentity.address.push(address)
+      }
+      await this.navigateToPersonnalInfos()
+    }
     if (this.store.userIdentity) {
       return { sourceAccountIdentifier: this.store.userIdentity.email }
     } else {
@@ -215,6 +225,32 @@ class TemplateContentScript extends ContentScript {
       '#formz-authentification-form-reste-connecte'
     )
     await this.runInWorker('click', '#js--btn-validation')
+  }
+
+  async navigateToPersonnalInfos() {
+    this.log('info', 'navigateToPersonnalInfos starts')
+    await this.evaluateInWorker(() => {
+      const contractElements = document.querySelectorAll('.cadre2')
+      contractElements[0]
+        .querySelector('a[href*="/clients/selection-compte?tx_demmcompte"]')
+        .click()
+    })
+    await Promise.all([
+      this.waitForElementInWorker(
+        'a[href*="/clients/connexion?logintype=logout"]'
+      ),
+      this.waitForElementInWorker(
+        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      )
+    ])
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
 
   // ////////
@@ -642,6 +678,29 @@ class TemplateContentScript extends ContentScript {
     }
     return false
   }
+
+  getOtherContractsAddresses() {
+    this.log('info', 'getOtherContractsAddresses starts')
+    let addresses = []
+    const elements = document.querySelectorAll('.cadre2')
+    // i = 1 because we dont need the first addresse, we already get it
+    for (let i = 1; i < elements.length; i++) {
+      const foundAddress = elements[i].querySelector(
+        'div[class="mt-dm largeur-auto"]'
+      ).textContent
+      const [street, postCodeAndCity] = foundAddress.split(',  ')
+      const formattedAddress = `${street} ${postCodeAndCity}`
+      const postCode = postCodeAndCity.trim().substring(0, 5)
+      const city = postCodeAndCity.trim().substring(5).trim()
+      addresses.push({
+        street,
+        postCode,
+        city,
+        formattedAddress
+      })
+    }
+    return addresses
+  }
 }
 
 const connector = new TemplateContentScript()
@@ -657,7 +716,8 @@ connector
       'getContract',
       'checkInfosPageTitle',
       'checkContractPageTitle',
-      'checkIfAskingCaptcha'
+      'checkIfAskingCaptcha',
+      'getOtherContractsAddresses'
     ]
   })
   .catch(err => {
