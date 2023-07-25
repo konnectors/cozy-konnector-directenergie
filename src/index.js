@@ -11,9 +11,10 @@ const contractSelectionPage =
   'https://www.totalenergies.fr/clients/selection-compte'
 const contactInfosPage =
   'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
-const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
-const billsHistoricPage =
-  'https://www.totalenergies.fr/clients/mes-factures/mon-historique-de-factures'
+// Keeping this urls around in case they're needed in the future
+// const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
+// const billsHistoricPage =
+//   'https://www.totalenergies.fr/clients/mes-factures/mon-historique-de-factures'
 
 let numberOfContracts = 1
 
@@ -202,7 +203,7 @@ class TemplateContentScript extends ContentScript {
           })
         }
       }
-      if (numberOfContracts > 1) {
+      if (numberOfContracts > 1 && i + 1 <= numberOfContracts) {
         this.log(
           'info',
           'More than 1 contract found, fetching bills and contract pdfs for the others'
