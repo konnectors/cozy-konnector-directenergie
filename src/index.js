@@ -1,5 +1,6 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
+import waitFor, { TimeoutError } from 'p-wait-for'
 const log = Minilog('ContentScript')
 Minilog.enable('totalenergiesCCC')
 
@@ -84,7 +85,7 @@ class TemplateContentScript extends ContentScript {
   async getUserDataFromWebsite() {
     this.log('info', 'getUserDataFromWebsite starts')
     if (
-      await this.evaluateInWorker(() => {
+      await this.evaluateInWorker(function checkContractSelectionPage() {
         if (document.location.href.includes('/clients/selection-compte'))
           return true
         else return false
@@ -168,11 +169,13 @@ class TemplateContentScript extends ContentScript {
   async getNumberOfContracts() {
     this.log('info', 'getNumberOfContracts starts')
     await this.waitForElementInWorker('.cadre2')
-    const numberOfContracts = await this.evaluateInWorker(() => {
-      const contractElements = document.querySelectorAll('.cadre2')
-      let foundContractsLength = contractElements.length
-      return foundContractsLength
-    })
+    const numberOfContracts = await this.evaluateInWorker(
+      function getContractsLength() {
+        const contractElements = document.querySelectorAll('.cadre2')
+        const foundContractsLength = contractElements.length
+        return foundContractsLength
+      }
+    )
     return numberOfContracts
   }
 
@@ -504,7 +507,6 @@ class TemplateContentScript extends ContentScript {
         }
       ]
     }
-    this.log('info', `userIdentity found : ${JSON.stringify(userIdentity)}`)
     await this.sendToPilot({ userIdentity })
   }
 
@@ -661,13 +663,11 @@ class TemplateContentScript extends ContentScript {
     let computedSchedules = []
     this.log('info', 'computing schedules')
     for (let j = 0; j < schedules.length; j++) {
-      this.log('info', 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDD')
       const vendorRef =
         schedules[j].element.children[0].children[2].innerHTML.match(
           /N° (.*)/
         )[1]
       const docTitle = schedules[j].element.children[0].children[0].innerHTML
-      this.log('info', 'EEEEEEEEEEEEEEEEEEEEEEEE')
       const rawDate = schedules[j].element.children[1].innerHTML
       const splitDate = rawDate.split('/')
       const day = splitDate[0]
@@ -757,14 +757,29 @@ class TemplateContentScript extends ContentScript {
     return false
   }
 
-  checkContractPageTitle() {
-    const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    ).textContent
-    if (pageTitle === ' Mon contrat ') {
-      return true
-    }
-    return false
+  async checkContractPageTitle() {
+    this.log('info', 'checkContractPageTitle')
+    await waitFor(
+      () => {
+        const pageTitle = document.querySelector(
+          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+        ).textContent
+        if (pageTitle === ' Mon contrat ') {
+          return true
+        }
+        return false
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new TimeoutError(
+            'checkContractPageTitle timed out after 30 secondes'
+          )
+        }
+      }
+    )
+    return true
   }
 
   checkIfAskingCaptcha() {
