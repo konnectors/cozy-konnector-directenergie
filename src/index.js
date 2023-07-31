@@ -1,5 +1,6 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
+import waitFor, { TimeoutError } from 'p-wait-for'
 const log = Minilog('ContentScript')
 Minilog.enable('totalenergiesCCC')
 
@@ -7,7 +8,16 @@ const baseUrl = 'https://www.totalenergies.fr/'
 const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
-const DEFAULT_SOURCE_ACCOUNT_IDENTIFIER = 'total energie'
+const contractSelectionPage =
+  'https://www.totalenergies.fr/clients/selection-compte'
+const contactInfosPage =
+  'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
+// Keeping this urls around in case they're needed in the future
+// const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
+// const billsHistoricPage =
+//   'https://www.totalenergies.fr/clients/mes-factures/mon-historique-de-factures'
+
+let numberOfContracts = 1
 
 class TemplateContentScript extends ContentScript {
   // ////////
@@ -74,6 +84,35 @@ class TemplateContentScript extends ContentScript {
 
   async getUserDataFromWebsite() {
     this.log('info', 'getUserDataFromWebsite starts')
+    if (
+      await this.evaluateInWorker(function checkContractSelectionPage() {
+        if (document.location.href.includes('/clients/selection-compte'))
+          return true
+        else return false
+      })
+    ) {
+      this.log('info', 'Landed on the contracts selection page after login')
+      const foundContractsNumber = await this.getNumberOfContracts()
+      this.log('info', `Found ${foundContractsNumber} contracts`)
+      numberOfContracts = foundContractsNumber
+      await this.runInWorker('selectContract', 0)
+    } else {
+      this.log('info', 'Landed on the home page after login')
+      const changeAccountLink = await this.isElementInWorker(
+        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      )
+      if (changeAccountLink) {
+        await this.runInWorker('removeElement', '.cadre2')
+        await this.clickAndWait(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]',
+          '.cadre2'
+        )
+        const foundContractsNumber = await this.getNumberOfContracts()
+        this.log('info', `Found ${foundContractsNumber} contracts`)
+        numberOfContracts = foundContractsNumber
+        await this.runInWorker('selectContract', 0)
+      }
+    }
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/gerer-mes-comptes"]'
     )
@@ -86,22 +125,113 @@ class TemplateContentScript extends ContentScript {
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
     await this.runInWorker('getIdentity')
-    if (!this.store.userIdentity) {
-      this.log(
-        'debug',
-        "Couldn't find a sourceAccountIdentifier, using default"
-      )
-      return { sourceAccountIdentifier: DEFAULT_SOURCE_ACCOUNT_IDENTIFIER }
+    if (numberOfContracts > 1) {
+      this.log('info', 'Found more than 1 contract, fetching addresses')
+      await this.goto(contractSelectionPage)
+      await this.waitForElementInWorker('a[href*="/clients/selection-compte"]')
+      const addresses = await this.runInWorker('getOtherContractsAddresses')
+      const clientRefs = await this.runInWorker('getOtherContractsReferences')
+      let i = 0
+      for (const address of addresses) {
+        this.store.userIdentity.address.push(address)
+        this.store.userIdentity.clientRefs.push({
+          linkedAddress: address.formattedAddress,
+          contractNumber: clientRefs[i]
+        })
+        i++
+      }
+      await this.navigateToPersonnalInfos()
     }
-    await this.saveIdentity(this.store.userIdentity)
-    return { sourceAccountIdentifier: this.store.userIdentity.email }
+    if (this.store.userIdentity) {
+      return { sourceAccountIdentifier: this.store.userIdentity.email }
+    } else {
+      throw new Error(
+        'No sourceAccountIdentifier, the konnector should be fixed'
+      )
+    }
+  }
+
+  async selectContract(number) {
+    this.log('info', 'selectContract starts')
+    const contractElements = document.querySelectorAll('.cadre2')
+    const elementToClick = contractElements[number].querySelector(
+      'a[href*="/clients/selection-compte?tx_demmcompte"]'
+    )
+    // Depending on where you come from, the page will have different selectors for the same button
+    // It may also not present the contract's selection button for the active contract
+    // so as we need to reach back the home page anyway, if the selector is not found we just load the homePage
+    elementToClick
+      ? elementToClick.click()
+      : (document.location.href =
+          'https://www.totalenergies.fr/clients/accueil')
+  }
+
+  async getNumberOfContracts() {
+    this.log('info', 'getNumberOfContracts starts')
+    await this.waitForElementInWorker('.cadre2')
+    const numberOfContracts = await this.evaluateInWorker(
+      function getContractsLength() {
+        const contractElements = document.querySelectorAll('.cadre2')
+        const foundContractsLength = contractElements.length
+        return foundContractsLength
+      }
+    )
+    return numberOfContracts
   }
 
   async fetch(context) {
     this.log('info', 'fetch starts')
+    await this.saveIdentity(this.store.userIdentity)
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
+    for (let i = 0; i < numberOfContracts; i++) {
+      const billsDone = await this.fetchBills()
+      if (billsDone) {
+        await this.saveBills(this.store.allDocuments, {
+          context,
+          fileIdAttributes: ['vendorRef', 'filename'],
+          contentType: 'application/pdf',
+          qualificationLabel: 'energy_invoice'
+        })
+        // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
+        // So we avoid the contract page
+        if (i === 0) {
+          await this.fetchContracts()
+          await this.saveFiles(this.store.contract, {
+            context,
+            fileIdAttributes: ['filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_contract'
+          })
+        }
+      }
+      if (numberOfContracts > 1 && i + 1 <= numberOfContracts) {
+        this.log(
+          'info',
+          'More than 1 contract found, fetching bills and contract pdfs for the others'
+        )
+        await this.runInWorker('removeElement', '.cadre2')
+        await this.goto(contractSelectionPage)
+        await this.waitForElementInWorker('.cadre2')
+        await this.runInWorker('selectContract', i + 1)
+        await this.waitForElementInWorker(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        )
+        await this.runInWorker(
+          'removeElement',
+          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+        )
+        await this.goto(contactInfosPage)
+        await this.waitForElementInWorker(
+          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+        )
+      }
+    }
+  }
+
+  async fetchBills() {
+    this.log('info', 'fetchBills starts')
     await this.clickAndWait(
       'a[href="/clients/mes-factures"]',
       'a[href="/clients/mes-factures/mon-historique-de-factures"]'
@@ -111,26 +241,17 @@ class TemplateContentScript extends ContentScript {
       '.detail-facture'
     )
     const billsDone = await this.runInWorker('getBills')
-    if (billsDone) {
-      await this.saveBills(this.store.allDocuments, {
-        context,
-        fileIdAttributes: ['vendorRef', 'filename'],
-        contentType: 'application/pdf',
-        qualificationLabel: 'energy_invoice'
-      })
-      await this.clickAndWait(
-        'a[href="/clients/mon-compte/mon-contrat"]',
-        '.cadre2'
-      )
-      await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
-      await this.runInWorker('getContract')
-      await this.saveFiles(this.store.contract, {
-        context,
-        fileIdAttributes: ['filename'],
-        contentType: 'application/pdf',
-        qualificationLabel: 'energy_contract'
-      })
-    }
+    return billsDone
+  }
+
+  async fetchContracts() {
+    this.log('info', 'fetchContracts starts')
+    await this.clickAndWait(
+      'a[href="/clients/mon-compte/mon-contrat"]',
+      '.cadre2'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
+    await this.runInWorker('getContract')
   }
 
   async authWithCredentials(credentials) {
@@ -150,7 +271,8 @@ class TemplateContentScript extends ContentScript {
         this.waitForElementInWorker('#captcha_audio'),
         this.waitForElementInWorker(
           'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        )
+        ),
+        this.waitForElementInWorker('.cadre2')
       ])
       const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
       if (isAskingCaptcha) {
@@ -193,6 +315,27 @@ class TemplateContentScript extends ContentScript {
     await this.runInWorker('click', '#js--btn-validation')
   }
 
+  async navigateToPersonnalInfos() {
+    this.log('info', 'navigateToPersonnalInfos starts')
+    await this.runInWorker('selectContract', 0)
+    await Promise.all([
+      this.waitForElementInWorker(
+        'a[href*="/clients/connexion?logintype=logout"]'
+      ),
+      this.waitForElementInWorker(
+        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      )
+    ])
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+  }
+
   // ////////
   // WORKER//
   // ////////
@@ -231,6 +374,10 @@ class TemplateContentScript extends ContentScript {
       document.querySelector('a[href="/clients/mon-compte/gerer-mes-comptes"]')
     ) {
       this.log('info', 'Auth Check succeeded')
+      return true
+    }
+    if (document.location.href.includes('/clients/selection-compte')) {
+      this.log('info', 'Auth check OK, need to choose a contract')
       return true
     }
     return false
@@ -319,13 +466,28 @@ class TemplateContentScript extends ContentScript {
       / {2}/g,
       ' '
     )
-    const splittedAddress = rawAddress.match(
-      /([0-9]*) ([A-Za-z\s-]*) ([0-9]{5}) ([A-Za-z0-9-\s/]*)/
-    )
-    const [fullAddress, houseNumber, street, postCode, city] = splittedAddress
+    let splittedAddress
+    if (rawAddress.includes('<Br/>')) {
+      let cleanedAddress
+      cleanedAddress = rawAddress.replace(/ <Br\/>/g, '')
+      splittedAddress = cleanedAddress.match(
+        /([0-9A-Za-z-'\s]*) ([\d]{5}) ([a-zA-Z-']*)/
+      )
+    } else {
+      splittedAddress = rawAddress.match(
+        /([0-9A-Za-z-'\s]*) ([\d]{5}) ([a-zA-Z-']*)/
+      )
+    }
+    const [fullAddress, street, postCode, city] = splittedAddress
+
     const userIdentity = {
       email,
-      clientRef,
+      clientRefs: [
+        {
+          linkedAddress: fullAddress,
+          contractNumber: clientRef
+        }
+      ],
       name: {
         givenName: name,
         familyName
@@ -333,7 +495,6 @@ class TemplateContentScript extends ContentScript {
       address: [
         {
           formattedAddress: fullAddress,
-          houseNumber,
           street,
           postCode,
           city
@@ -400,11 +561,13 @@ class TemplateContentScript extends ContentScript {
   }
 
   getInvoices() {
+    this.log('info', 'getInvoices starts')
     const invoices = document.querySelectorAll('div[class="detail-facture"]')
     return invoices
   }
 
   getSchedules() {
+    this.log('info', 'getSchedules starts')
     const schedulesInfos = document.querySelectorAll(
       '.action__condition-conteneur-label'
     )
@@ -422,6 +585,7 @@ class TemplateContentScript extends ContentScript {
   }
 
   computeInformations(invoices, schedules) {
+    this.log('info', 'computeInformations starts')
     let computedInvoices = []
     for (let i = 0; i < invoices.length; i++) {
       const vendorRef =
@@ -471,15 +635,23 @@ class TemplateContentScript extends ContentScript {
       switch (paymentStatus) {
         case 'Paid':
           invoice.paymentStatus = paymentStatus
-          invoice.paymentStatusDate = rawPaymentStatus.match(
-            /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
-          )[0]
+          if (rawPaymentStatus.match(/[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g)) {
+            invoice.paymentStatusDate = rawPaymentStatus.match(
+              /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
+            )[0]
+          } else {
+            this.log('warn', 'No date found for this payment status')
+          }
           break
         case 'Refunded':
           invoice.paymentStatus = paymentStatus
-          invoice.paymentStatusDate = rawPaymentStatus.match(
-            /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
-          )[0]
+          if (rawPaymentStatus.match(/[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g)) {
+            invoice.paymentStatusDate = rawPaymentStatus.match(
+              /[0-9]{2}\/[0-9]{2}\/[0-9]{4}/g
+            )[0]
+          } else {
+            this.log('warn', 'No date found for this payment status')
+          }
           invoice.isRefund = true
           break
         default:
@@ -489,6 +661,7 @@ class TemplateContentScript extends ContentScript {
       computedInvoices.push(invoice)
     }
     let computedSchedules = []
+    this.log('info', 'computing schedules')
     for (let j = 0; j < schedules.length; j++) {
       const vendorRef =
         schedules[j].element.children[0].children[2].innerHTML.match(
@@ -584,25 +757,89 @@ class TemplateContentScript extends ContentScript {
     return false
   }
 
-  checkContractPageTitle() {
-    const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    ).textContent
-    if (pageTitle === ' Mon contrat ') {
-      return true
-    }
-    return false
+  async checkContractPageTitle() {
+    this.log('info', 'checkContractPageTitle')
+    await waitFor(
+      () => {
+        const pageTitle = document.querySelector(
+          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+        ).textContent
+        if (pageTitle === ' Mon contrat ') {
+          return true
+        }
+        return false
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new TimeoutError(
+            'checkContractPageTitle timed out after 30 secondes'
+          )
+        }
+      }
+    )
+    return true
   }
 
   checkIfAskingCaptcha() {
     this.log('info', 'checkIfAskingCaptcha starts')
     const isCaptchaPage = document.querySelector('#captcha_audio')
-    const captchaTitle = document.querySelector('h2').textContent
+    const captchaTitle = document.querySelector('h2')?.textContent
 
     if (isCaptchaPage && captchaTitle === 'Non, je ne suis pas un robot !') {
       return true
     }
     return false
+  }
+
+  getOtherContractsAddresses() {
+    this.log('info', 'getOtherContractsAddresses starts')
+    let addresses = []
+    const elements = document.querySelectorAll('.cadre2')
+    // i = 1 because we dont need the first addresse, we already get it
+    for (let i = 1; i < elements.length; i++) {
+      const foundAddress = elements[i].querySelector(
+        'div[class="mt-dm largeur-auto"]'
+      ).textContent
+      const [street, postCodeAndCity] = foundAddress.split(',  ')
+      const formattedAddress = `${street} ${postCodeAndCity}`
+      const postCode = postCodeAndCity.trim().substring(0, 5)
+      const city = postCodeAndCity.trim().substring(5).trim()
+      addresses.push({
+        street,
+        postCode,
+        city,
+        formattedAddress
+      })
+    }
+    return addresses
+  }
+
+  getOtherContractsReferences() {
+    this.log('info', 'getOtherContractsReferences starts')
+    let clientRefs = []
+    const elements = document.querySelectorAll('.cadre2')
+    // i = 1 because we dont need the first addresse, we already get it
+    for (let i = 1; i < elements.length; i++) {
+      const foundRef = elements[i].querySelector(
+        'div[class*="js--partenaire-id-"]'
+      ).textContent
+      const foundClientRef = foundRef.split(' -')[0]
+      const clientRef = foundClientRef.trim()
+      clientRefs.push(clientRef)
+    }
+    return clientRefs
+  }
+
+  removeElement(element) {
+    this.log('info', 'removeElement starts')
+    // Here we're removing all element with .cadre2 class as we're gonna
+    // use this class to know when we reached the contract selection page
+    const elements = document.querySelectorAll(element)
+    for (const element of elements) {
+      element.remove()
+    }
   }
 }
 
@@ -619,7 +856,11 @@ connector
       'getContract',
       'checkInfosPageTitle',
       'checkContractPageTitle',
-      'checkIfAskingCaptcha'
+      'checkIfAskingCaptcha',
+      'getOtherContractsAddresses',
+      'getOtherContractsReferences',
+      'selectContract',
+      'removeElement'
     ]
   })
   .catch(err => {
