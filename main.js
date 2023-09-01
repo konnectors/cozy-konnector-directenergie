@@ -5518,6 +5518,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // PILOT //
   // ////////
   async navigateToLoginForm() {
+    this.log('info', 'navigateToLoginForm starts')
     await this.goto(baseUrl)
     await this.waitForElementInWorker('.menu-p-btn-ec')
     await this.runInWorker('click', '.menu-p-btn-ec')
@@ -5608,7 +5609,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       }
     }
     await this.waitForElementInWorker(
-      'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
     await this.runInWorker(
       'click',
@@ -5622,7 +5623,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (numberOfContracts > 1) {
       this.log('info', 'Found more than 1 contract, fetching addresses')
       await this.goto(contractSelectionPage)
-      await this.waitForElementInWorker('a[href*="/clients/selection-compte"]')
+      await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
       const addresses = await this.runInWorker('getOtherContractsAddresses')
       const clientRefs = await this.runInWorker('getOtherContractsReferences')
       let i = 0
@@ -5647,17 +5648,24 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async selectContract(number) {
     this.log('info', 'selectContract starts')
+    this.log('info', `selectContract - number is ${number}`)
     const contractElements = document.querySelectorAll('.cadre2')
     const elementToClick = contractElements[number].querySelector(
-      'a[href*="/clients/selection-compte?tx_demmcompte"]'
+      'a[href*="?tx_demmcompte"]'
     )
     // Depending on where you come from, the page will have different selectors for the same button
     // It may also not present the contract's selection button for the active contract
     // so as we need to reach back the home page anyway, if the selector is not found we just load the homePage
-    elementToClick
-      ? elementToClick.click()
-      : (document.location.href =
-          'https://www.totalenergies.fr/clients/accueil')
+    if (elementToClick) {
+      this.log('info', 'selectContract - elementToClick found')
+      elementToClick.click()
+    } else {
+      this.log(
+        'info',
+        'selectContract - elementToClick not found, changing href'
+      )
+      document.location.href = 'https://www.totalenergies.fr/clients/accueil'
+    }
   }
 
   async getNumberOfContracts() {
@@ -5682,12 +5690,34 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     for (let i = 0; i < numberOfContracts; i++) {
       const billsDone = await this.fetchBills()
       if (billsDone) {
-        await this.saveBills(this.store.allDocuments, {
-          context,
-          fileIdAttributes: ['vendorRef', 'filename'],
-          contentType: 'application/pdf',
-          qualificationLabel: 'energy_invoice'
-        })
+        // Some retrieved files may not have an amount associated (some schedules for example)
+        // so wee need to sort those out before saving to avoid errors in saveBills
+        const bills = []
+        const files = []
+        for (const oneDoc of this.store.allDocuments) {
+          if (oneDoc.amount) {
+            bills.push(oneDoc)
+          } else {
+            files.push(oneDoc)
+          }
+        }
+        await Promise.all([
+          this.saveBills(bills, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice'
+            // Here we're suppose to use subPaths to save files in contract directories.
+            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+          }),
+          this.saveFiles(files, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice'
+            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+          })
+        ])
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
         // So we avoid the contract page
         if (i === 0) {
@@ -5697,10 +5727,11 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
             fileIdAttributes: ['filename'],
             contentType: 'application/pdf',
             qualificationLabel: 'energy_contract'
+            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
           })
         }
       }
-      if (numberOfContracts > 1 && i + 1 <= numberOfContracts) {
+      if (numberOfContracts > 1 && i + 1 < numberOfContracts) {
         this.log(
           'info',
           'More than 1 contract found, fetching bills and contract pdfs for the others'
@@ -6026,8 +6057,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     const year = splittedStartDate[2]
     const startDate = new Date(year, month, day)
     const href = contractElement
-      .querySelectorAll('.ml-std')[1]
-      .children[1].getAttribute('href')
+      .querySelector('a[href*="/telechargement-des-contrats"]')
+      .getAttribute('href')
     const fileurl = `https://www.totalenergies.fr${href}`
     const filename = `${year}-${month}-${day}_TotalEnergie_Contrat_${offerName.replaceAll(
       ' ',
@@ -6092,25 +6123,13 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       const year = splitDate[2]
       const rawPaymentStatus = invoices[i].children[2].innerHTML
       const paymentStatus = this.findBillStatus(rawPaymentStatus)
-      const rawAmount = invoices[i].children[3].innerHTML.match(
-        /([0-9]){1,},([0-9]){1,2}/g
-      )
-      const rawCurrency = invoices[i].children[3].innerHTML.match(/€|\$|£/g)
-      const currency = rawCurrency === '€' ? 'EUR' : rawCurrency[0]
       const href = invoices[i].children[4].getAttribute('href')
       const fileurl = `https://www.totalenergies.fr${href}`
-      const amount = parseFloat(rawAmount[0].replace(',', '.'))
       const date = new Date(`${month}/${day}/${year}`)
       let invoice = {
         docTitle,
-        filename: `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
-          / /g,
-          '-'
-        )}_${amount}${currency}.pdf`,
         vendorRef,
-        amount,
         date,
-        currency,
         fileurl,
         fileIdAttributes: ['vendorRef'],
         vendor: 'Total Energies',
@@ -6151,6 +6170,32 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         default:
           invoice.paymentStatus = paymentStatus
           break
+      }
+      const rawCurrency = invoices[i].children[3].innerHTML.match(/€|\$|£/g)
+      let currency
+      const rawAmount = invoices[i].children[3].innerHTML.match(
+        /([0-9]){1,},([0-9]){1,2}/g
+      )
+      let amount
+      if (rawCurrency != null) {
+        currency = rawCurrency === '€' ? 'EUR' : rawCurrency[0]
+        invoice.currency = currency
+      }
+      if (rawAmount != null) {
+        amount = parseFloat(rawAmount[0].replace(',', '.'))
+        invoice.amount = amount
+      }
+      if (currency && amount) {
+        invoice.filename = `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+          / /g,
+          '-'
+        )}_${amount}${currency}.pdf`
+      } else {
+        this.log('info', 'No couple amount/currency for this bill')
+        invoice.filename = `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+          / /g,
+          '-'
+        )}.pdf`
       }
       computedInvoices.push(invoice)
     }
@@ -6235,20 +6280,39 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       return 'Ended'
     } else if (rawPaymentStatus.match('Remboursée')) {
       return 'Refunded'
+    } else if (rawPaymentStatus === '') {
+      this.log('debug', 'No status for this file')
+      return 'No status'
     } else {
       this.log('debug', 'Unknown status, returning as it is')
       return rawPaymentStatus
     }
   }
 
-  checkInfosPageTitle() {
-    const pageTitle = document.querySelector(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    ).textContent
-    if (pageTitle === ' Mes infos de contact ') {
-      return true
-    }
-    return false
+  async checkInfosPageTitle() {
+    this.log('info', 'checkInfosPageTitle starts')
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
+      () => {
+        const pageTitle = document.querySelector(
+          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+        )?.textContent
+        if (pageTitle === ' Mes infos de contact ') {
+          return true
+        } else {
+          return false
+        }
+      },
+      {
+        interval: 1000,
+        timeout: {
+          milliseconds: 30000,
+          message: new p_wait_for__WEBPACK_IMPORTED_MODULE_2__.TimeoutError(
+            'checkInfosPageTitle timed out after 30 secondes'
+          )
+        }
+      }
+    )
+    return true
   }
 
   async checkContractPageTitle() {
@@ -6297,7 +6361,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         'div[class="mt-dm largeur-auto"]'
       ).textContent
       const [street, postCodeAndCity] = foundAddress.split(',  ')
-      const formattedAddress = `${street} ${postCodeAndCity}`
+      const formattedAddress = `${street} ${postCodeAndCity}`.trim()
       const postCode = postCodeAndCity.trim().substring(0, 5)
       const city = postCodeAndCity.trim().substring(5).trim()
       addresses.push({
