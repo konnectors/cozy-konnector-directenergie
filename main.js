@@ -5518,7 +5518,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // PILOT //
   // ////////
   async navigateToLoginForm() {
-    this.log('info', 'navigateToLoginForm starts')
+    this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
     await this.waitForElementInWorker('.menu-p-btn-ec')
     await this.runInWorker('click', '.menu-p-btn-ec')
@@ -5531,7 +5531,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async ensureAuthenticated({ account }) {
-    this.log('info', 'ensaureAuthenticated starts')
+    this.log('info', '🤖 ensureAuthenticated starts')
     if (!account) {
       await this.ensureNotAuthenticated()
     }
@@ -5554,7 +5554,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async ensureNotAuthenticated() {
-    this.log('info', 'ensureNotAuthenticated starts')
+    this.log('info', '🤖 ensureNotAuthenticated starts')
     await this.navigateToLoginForm()
     const authenticated = await this.runInWorker('checkAuthenticated')
     if (!authenticated) {
@@ -5578,14 +5578,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async getUserDataFromWebsite() {
-    this.log('info', 'getUserDataFromWebsite starts')
-    if (
-      await this.evaluateInWorker(function checkContractSelectionPage() {
+    this.log('info', '🤖 getUserDataFromWebsite starts')
+    const isContractSelectionPage = await this.evaluateInWorker(
+      function checkContractSelectionPage() {
         if (document.location.href.includes('/clients/selection-compte'))
           return true
         else return false
-      })
-    ) {
+      }
+    )
+    if (isContractSelectionPage) {
       this.log('info', 'Landed on the contracts selection page after login')
       const foundContractsNumber = await this.getNumberOfContracts()
       this.log('info', `Found ${foundContractsNumber} contracts`)
@@ -5647,7 +5648,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async selectContract(number) {
-    this.log('info', 'selectContract starts')
+    this.log('info', '🤖 selectContract starts')
     this.log('info', `selectContract - number is ${number}`)
     const contractElements = document.querySelectorAll('.cadre2')
     const elementToClick = contractElements[number].querySelector(
@@ -5682,7 +5683,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async fetch(context) {
-    this.log('info', 'fetch starts')
+    this.log('info', '🤖 fetch starts')
     await this.saveIdentity(this.store.userIdentity)
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
@@ -5706,16 +5707,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
             context,
             fileIdAttributes: ['vendorRef', 'filename'],
             contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice'
-            // Here we're suppose to use subPaths to save files in contract directories.
-            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            qualificationLabel: 'energy_invoice',
+            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
           }),
           this.saveFiles(files, {
             context,
             fileIdAttributes: ['vendorRef', 'filename'],
             contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice'
-            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            qualificationLabel: 'energy_invoice',
+            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
           })
         ])
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
@@ -5726,8 +5726,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
             context,
             fileIdAttributes: ['filename'],
             contentType: 'application/pdf',
-            qualificationLabel: 'energy_contract'
-            // subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            qualificationLabel: 'energy_contract',
+            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
           })
         }
       }
@@ -5849,6 +5849,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       ),
       this.waitForElementInWorker(
         'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      ),
+      this.waitForElementInWorker(
+        'a[href="/clients/mon-compte/mes-infos-de-contact"]'
       )
     ])
     await this.runInWorker(
