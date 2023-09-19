@@ -5517,6 +5517,19 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // ////////
   // PILOT //
   // ////////
+  async navigateToContactInformation() {
+    await this.waitForElementInWorker(
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+  }
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
@@ -5609,17 +5622,16 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         await this.runInWorker('selectContract', 0)
       }
     }
-    await this.waitForElementInWorker(
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
-    await this.runInWorker(
-      'click',
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
-    await this.waitForElementInWorker(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    )
-    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+    try {
+      await this.navigateToContactInformation()
+    } catch (err) {
+      this.log(
+        'info',
+        'Navigation to contact information failed. Trying once again'
+      )
+      this.log('debug', err.message)
+      await this.navigateToContactInformation()
+    }
     await this.runInWorker('getIdentity')
     if (numberOfContracts > 1) {
       this.log('info', 'Found more than 1 contract, fetching addresses')
