@@ -1,6 +1,8 @@
 import { ContentScript } from 'cozy-clisk/dist/contentscript'
 import Minilog from '@cozy/minilog'
 import waitFor, { TimeoutError } from 'p-wait-for'
+import pRetry from 'p-retry'
+
 const log = Minilog('ContentScript')
 Minilog.enable('totalenergiesCCC')
 
@@ -23,6 +25,19 @@ class TemplateContentScript extends ContentScript {
   // ////////
   // PILOT //
   // ////////
+  async navigateToContactInformation() {
+    await this.waitForElementInWorker(
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.runInWorker(
+      'click',
+      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+    )
+    await this.waitForElementInWorker(
+      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+    )
+    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+  }
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
@@ -115,17 +130,15 @@ class TemplateContentScript extends ContentScript {
         await this.runInWorker('selectContract', 0)
       }
     }
-    await this.waitForElementInWorker(
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
-    await this.runInWorker(
-      'click',
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
-    await this.waitForElementInWorker(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    )
-    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+    await pRetry(this.navigateToContactInformation.bind(this), {
+      retries: 5,
+      onFailedAttempt: error => {
+        this.log(
+          'info',
+          `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+        )
+      }
+    })
     await this.runInWorker('getIdentity')
     if (numberOfContracts > 1) {
       this.log('info', 'Found more than 1 contract, fetching addresses')
