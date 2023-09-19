@@ -5402,6 +5402,394 @@ module.exports = _defineProperty, module.exports.__esModule = true, module.expor
 "use strict";
 module.exports = JSON.parse('{"name":"cozy-clisk","version":"0.23.0","description":"All the libs needed to run a cozy client connector","repository":{"type":"git","url":"git+https://github.com/konnectors/libs.git"},"files":["dist"],"keywords":["konnector"],"main":"dist/index.js","author":"doubleface <christophe@cozycloud.cc>","license":"MIT","bugs":{"url":"https://github.com/konnectors/libs/issues"},"homepage":"https://github.com/konnectors/libs#readme","scripts":{"lint":"eslint \'src/**/*.js\'","prepublishOnly":"yarn run build","build":"babel --root-mode upward src/ -d dist/ --copy-files --verbose --ignore \'**/*.spec.js\',\'**/*.spec.jsx\'","test":"jest src"},"devDependencies":{"@babel/core":"7.20.12","babel-jest":"29.3.1","babel-preset-cozy-app":"2.0.4","jest":"29.3.1","jest-environment-jsdom":"29.3.1","typescript":"4.9.5"},"dependencies":{"@cozy/minilog":"^1.0.0","bluebird-retry":"^0.11.0","cozy-client":"^34.11.0","ky":"^0.25.1","lodash":"^4.17.21","p-wait-for":"^5.0.2","post-me":"^0.4.5"},"gitHead":"8b2ecac5417090322025a92918b39577e96b3403"}');
 
+/***/ }),
+/* 46 */
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "AbortError": () => (/* binding */ AbortError),
+/* harmony export */   "default": () => (/* binding */ pRetry)
+/* harmony export */ });
+/* harmony import */ var retry__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(47);
+
+
+const networkErrorMsgs = new Set([
+	'Failed to fetch', // Chrome
+	'NetworkError when attempting to fetch resource.', // Firefox
+	'The Internet connection appears to be offline.', // Safari
+	'Network request failed', // `cross-fetch`
+	'fetch failed', // Undici (Node.js)
+]);
+
+class AbortError extends Error {
+	constructor(message) {
+		super();
+
+		if (message instanceof Error) {
+			this.originalError = message;
+			({message} = message);
+		} else {
+			this.originalError = new Error(message);
+			this.originalError.stack = this.stack;
+		}
+
+		this.name = 'AbortError';
+		this.message = message;
+	}
+}
+
+const decorateErrorWithCounts = (error, attemptNumber, options) => {
+	// Minus 1 from attemptNumber because the first attempt does not count as a retry
+	const retriesLeft = options.retries - (attemptNumber - 1);
+
+	error.attemptNumber = attemptNumber;
+	error.retriesLeft = retriesLeft;
+	return error;
+};
+
+const isNetworkError = errorMessage => networkErrorMsgs.has(errorMessage);
+
+async function pRetry(input, options) {
+	return new Promise((resolve, reject) => {
+		options = {
+			onFailedAttempt() {},
+			retries: 10,
+			...options,
+		};
+
+		const operation = retry__WEBPACK_IMPORTED_MODULE_0__.operation(options);
+
+		const abortHandler = () => {
+			operation.stop();
+			reject(options.signal?.reason);
+		};
+
+		if (options.signal && !options.signal.aborted) {
+			options.signal.addEventListener('abort', abortHandler, {once: true});
+		}
+
+		const cleanUp = () => {
+			options.signal?.removeEventListener('abort', abortHandler);
+			operation.stop();
+		};
+
+		operation.attempt(async attemptNumber => {
+			try {
+				const result = await input(attemptNumber);
+				cleanUp();
+				resolve(result);
+			} catch (error) {
+				try {
+					if (!(error instanceof Error)) {
+						throw new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
+					}
+
+					if (error instanceof AbortError) {
+						throw error.originalError;
+					}
+
+					if (error instanceof TypeError && !isNetworkError(error.message)) {
+						throw error;
+					}
+
+					await options.onFailedAttempt(decorateErrorWithCounts(error, attemptNumber, options));
+
+					if (!operation.retry(error)) {
+						throw operation.mainError();
+					}
+				} catch (finalError) {
+					decorateErrorWithCounts(finalError, attemptNumber, options);
+					cleanUp();
+					reject(finalError);
+				}
+			}
+		});
+	});
+}
+
+
+/***/ }),
+/* 47 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__(48);
+
+/***/ }),
+/* 48 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+var RetryOperation = __webpack_require__(49);
+
+exports.operation = function(options) {
+  var timeouts = exports.timeouts(options);
+  return new RetryOperation(timeouts, {
+      forever: options && (options.forever || options.retries === Infinity),
+      unref: options && options.unref,
+      maxRetryTime: options && options.maxRetryTime
+  });
+};
+
+exports.timeouts = function(options) {
+  if (options instanceof Array) {
+    return [].concat(options);
+  }
+
+  var opts = {
+    retries: 10,
+    factor: 2,
+    minTimeout: 1 * 1000,
+    maxTimeout: Infinity,
+    randomize: false
+  };
+  for (var key in options) {
+    opts[key] = options[key];
+  }
+
+  if (opts.minTimeout > opts.maxTimeout) {
+    throw new Error('minTimeout is greater than maxTimeout');
+  }
+
+  var timeouts = [];
+  for (var i = 0; i < opts.retries; i++) {
+    timeouts.push(this.createTimeout(i, opts));
+  }
+
+  if (options && options.forever && !timeouts.length) {
+    timeouts.push(this.createTimeout(i, opts));
+  }
+
+  // sort the array numerically ascending
+  timeouts.sort(function(a,b) {
+    return a - b;
+  });
+
+  return timeouts;
+};
+
+exports.createTimeout = function(attempt, opts) {
+  var random = (opts.randomize)
+    ? (Math.random() + 1)
+    : 1;
+
+  var timeout = Math.round(random * Math.max(opts.minTimeout, 1) * Math.pow(opts.factor, attempt));
+  timeout = Math.min(timeout, opts.maxTimeout);
+
+  return timeout;
+};
+
+exports.wrap = function(obj, options, methods) {
+  if (options instanceof Array) {
+    methods = options;
+    options = null;
+  }
+
+  if (!methods) {
+    methods = [];
+    for (var key in obj) {
+      if (typeof obj[key] === 'function') {
+        methods.push(key);
+      }
+    }
+  }
+
+  for (var i = 0; i < methods.length; i++) {
+    var method   = methods[i];
+    var original = obj[method];
+
+    obj[method] = function retryWrapper(original) {
+      var op       = exports.operation(options);
+      var args     = Array.prototype.slice.call(arguments, 1);
+      var callback = args.pop();
+
+      args.push(function(err) {
+        if (op.retry(err)) {
+          return;
+        }
+        if (err) {
+          arguments[0] = op.mainError();
+        }
+        callback.apply(this, arguments);
+      });
+
+      op.attempt(function() {
+        original.apply(obj, args);
+      });
+    }.bind(obj, original);
+    obj[method].options = options;
+  }
+};
+
+
+/***/ }),
+/* 49 */
+/***/ ((module) => {
+
+function RetryOperation(timeouts, options) {
+  // Compatibility for the old (timeouts, retryForever) signature
+  if (typeof options === 'boolean') {
+    options = { forever: options };
+  }
+
+  this._originalTimeouts = JSON.parse(JSON.stringify(timeouts));
+  this._timeouts = timeouts;
+  this._options = options || {};
+  this._maxRetryTime = options && options.maxRetryTime || Infinity;
+  this._fn = null;
+  this._errors = [];
+  this._attempts = 1;
+  this._operationTimeout = null;
+  this._operationTimeoutCb = null;
+  this._timeout = null;
+  this._operationStart = null;
+  this._timer = null;
+
+  if (this._options.forever) {
+    this._cachedTimeouts = this._timeouts.slice(0);
+  }
+}
+module.exports = RetryOperation;
+
+RetryOperation.prototype.reset = function() {
+  this._attempts = 1;
+  this._timeouts = this._originalTimeouts.slice(0);
+}
+
+RetryOperation.prototype.stop = function() {
+  if (this._timeout) {
+    clearTimeout(this._timeout);
+  }
+  if (this._timer) {
+    clearTimeout(this._timer);
+  }
+
+  this._timeouts       = [];
+  this._cachedTimeouts = null;
+};
+
+RetryOperation.prototype.retry = function(err) {
+  if (this._timeout) {
+    clearTimeout(this._timeout);
+  }
+
+  if (!err) {
+    return false;
+  }
+  var currentTime = new Date().getTime();
+  if (err && currentTime - this._operationStart >= this._maxRetryTime) {
+    this._errors.push(err);
+    this._errors.unshift(new Error('RetryOperation timeout occurred'));
+    return false;
+  }
+
+  this._errors.push(err);
+
+  var timeout = this._timeouts.shift();
+  if (timeout === undefined) {
+    if (this._cachedTimeouts) {
+      // retry forever, only keep last error
+      this._errors.splice(0, this._errors.length - 1);
+      timeout = this._cachedTimeouts.slice(-1);
+    } else {
+      return false;
+    }
+  }
+
+  var self = this;
+  this._timer = setTimeout(function() {
+    self._attempts++;
+
+    if (self._operationTimeoutCb) {
+      self._timeout = setTimeout(function() {
+        self._operationTimeoutCb(self._attempts);
+      }, self._operationTimeout);
+
+      if (self._options.unref) {
+          self._timeout.unref();
+      }
+    }
+
+    self._fn(self._attempts);
+  }, timeout);
+
+  if (this._options.unref) {
+      this._timer.unref();
+  }
+
+  return true;
+};
+
+RetryOperation.prototype.attempt = function(fn, timeoutOps) {
+  this._fn = fn;
+
+  if (timeoutOps) {
+    if (timeoutOps.timeout) {
+      this._operationTimeout = timeoutOps.timeout;
+    }
+    if (timeoutOps.cb) {
+      this._operationTimeoutCb = timeoutOps.cb;
+    }
+  }
+
+  var self = this;
+  if (this._operationTimeoutCb) {
+    this._timeout = setTimeout(function() {
+      self._operationTimeoutCb();
+    }, self._operationTimeout);
+  }
+
+  this._operationStart = new Date().getTime();
+
+  this._fn(this._attempts);
+};
+
+RetryOperation.prototype.try = function(fn) {
+  console.log('Using RetryOperation.try() is deprecated');
+  this.attempt(fn);
+};
+
+RetryOperation.prototype.start = function(fn) {
+  console.log('Using RetryOperation.start() is deprecated');
+  this.attempt(fn);
+};
+
+RetryOperation.prototype.start = RetryOperation.prototype.try;
+
+RetryOperation.prototype.errors = function() {
+  return this._errors;
+};
+
+RetryOperation.prototype.attempts = function() {
+  return this._attempts;
+};
+
+RetryOperation.prototype.mainError = function() {
+  if (this._errors.length === 0) {
+    return null;
+  }
+
+  var counts = {};
+  var mainError = null;
+  var mainErrorCount = 0;
+
+  for (var i = 0; i < this._errors.length; i++) {
+    var error = this._errors[i];
+    var message = error.message;
+    var count = (counts[message] || 0) + 1;
+
+    counts[message] = count;
+
+    if (count >= mainErrorCount) {
+      mainError = error;
+      mainErrorCount = count;
+    }
+  }
+
+  return mainError;
+};
+
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -5492,6 +5880,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(20);
 /* harmony import */ var _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_cozy_minilog__WEBPACK_IMPORTED_MODULE_1__);
 /* harmony import */ var p_wait_for__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(18);
+/* harmony import */ var p_retry__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(46);
+
+
 
 
 
@@ -5518,6 +5909,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // PILOT //
   // ////////
   async navigateToContactInformation() {
+    this.log('info', 'trying navigateToContactInformation...')
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
@@ -5622,16 +6014,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         await this.runInWorker('selectContract', 0)
       }
     }
-    try {
-      await this.navigateToContactInformation()
-    } catch (err) {
-      this.log(
-        'info',
-        'Navigation to contact information failed. Trying once again'
-      )
-      this.log('debug', err.message)
-      await this.navigateToContactInformation()
-    }
+    await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation, { retries: 5 })
     await this.runInWorker('getIdentity')
     if (numberOfContracts > 1) {
       this.log('info', 'Found more than 1 contract, fetching addresses')
