@@ -7080,6 +7080,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // PILOT //
   // ////////
   async navigateToContactInformation() {
+    this.log(
+      'info',
+      'navigateToContactInformation this: ' + JSON.stringify(this)
+    )
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
