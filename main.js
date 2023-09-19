@@ -5982,70 +5982,75 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async getUserDataFromWebsite() {
-    this.log('info', '🤖 getUserDataFromWebsite starts')
-    const isContractSelectionPage = await this.evaluateInWorker(
-      function checkContractSelectionPage() {
-        if (document.location.href.includes('/clients/selection-compte'))
-          return true
-        else return false
-      }
-    )
-    if (isContractSelectionPage) {
-      this.log('info', 'Landed on the contracts selection page after login')
-      const foundContractsNumber = await this.getNumberOfContracts()
-      this.log('info', `Found ${foundContractsNumber} contracts`)
-      numberOfContracts = foundContractsNumber
-      await this.runInWorker('selectContract', 0)
-    } else {
-      this.log('info', 'Landed on the home page after login')
-      const changeAccountLink = await this.isElementInWorker(
-        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+    try {
+      this.log('info', '🤖 getUserDataFromWebsite starts')
+      const isContractSelectionPage = await this.evaluateInWorker(
+        function checkContractSelectionPage() {
+          if (document.location.href.includes('/clients/selection-compte'))
+            return true
+          else return false
+        }
       )
-      if (changeAccountLink) {
-        await this.runInWorker('removeElement', '.cadre2')
-        await this.clickAndWait(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]',
-          '.cadre2'
-        )
+      if (isContractSelectionPage) {
+        this.log('info', 'Landed on the contracts selection page after login')
         const foundContractsNumber = await this.getNumberOfContracts()
         this.log('info', `Found ${foundContractsNumber} contracts`)
         numberOfContracts = foundContractsNumber
         await this.runInWorker('selectContract', 0)
+      } else {
+        this.log('info', 'Landed on the home page after login')
+        const changeAccountLink = await this.isElementInWorker(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        )
+        if (changeAccountLink) {
+          await this.runInWorker('removeElement', '.cadre2')
+          await this.clickAndWait(
+            'a[href="/clients/mon-compte/gerer-mes-comptes"]',
+            '.cadre2'
+          )
+          const foundContractsNumber = await this.getNumberOfContracts()
+          this.log('info', `Found ${foundContractsNumber} contracts`)
+          numberOfContracts = foundContractsNumber
+          await this.runInWorker('selectContract', 0)
+        }
       }
-    }
-    await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation, {
-      retries: 5,
-      onFailedAttempt: error => {
-        this.log(
-          'info',
-          `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+      await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation, {
+        retries: 5,
+        onFailedAttempt: error => {
+          this.log(
+            'info',
+            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+          )
+        }
+      })
+      await this.runInWorker('getIdentity')
+      if (numberOfContracts > 1) {
+        this.log('info', 'Found more than 1 contract, fetching addresses')
+        await this.goto(contractSelectionPage)
+        await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
+        const addresses = await this.runInWorker('getOtherContractsAddresses')
+        const clientRefs = await this.runInWorker('getOtherContractsReferences')
+        let i = 0
+        for (const address of addresses) {
+          this.store.userIdentity.address.push(address)
+          this.store.userIdentity.clientRefs.push({
+            linkedAddress: address.formattedAddress,
+            contractNumber: clientRefs[i]
+          })
+          i++
+        }
+        await this.navigateToPersonnalInfos()
+      }
+      if (this.store.userIdentity) {
+        return { sourceAccountIdentifier: this.store.userIdentity.email }
+      } else {
+        throw new Error(
+          'No sourceAccountIdentifier, the konnector should be fixed'
         )
       }
-    })
-    await this.runInWorker('getIdentity')
-    if (numberOfContracts > 1) {
-      this.log('info', 'Found more than 1 contract, fetching addresses')
-      await this.goto(contractSelectionPage)
-      await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
-      const addresses = await this.runInWorker('getOtherContractsAddresses')
-      const clientRefs = await this.runInWorker('getOtherContractsReferences')
-      let i = 0
-      for (const address of addresses) {
-        this.store.userIdentity.address.push(address)
-        this.store.userIdentity.clientRefs.push({
-          linkedAddress: address.formattedAddress,
-          contractNumber: clientRefs[i]
-        })
-        i++
-      }
-      await this.navigateToPersonnalInfos()
-    }
-    if (this.store.userIdentity) {
-      return { sourceAccountIdentifier: this.store.userIdentity.email }
-    } else {
-      throw new Error(
-        'No sourceAccountIdentifier, the konnector should be fixed'
-      )
+    } catch (err) {
+      this.log('error', `getUserDataFromWebsite error : ${err.message}`)
+      throw err
     }
   }
 
@@ -6085,75 +6090,80 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   }
 
   async fetch(context) {
-    this.log('info', '🤖 fetch starts')
-    await this.saveIdentity(this.store.userIdentity)
-    if (this.store.userCredentials) {
-      await this.saveCredentials(this.store.userCredentials)
-    }
-    for (let i = 0; i < numberOfContracts; i++) {
-      const billsDone = await this.fetchBills()
-      if (billsDone) {
-        // Some retrieved files may not have an amount associated (some schedules for example)
-        // so wee need to sort those out before saving to avoid errors in saveBills
-        const bills = []
-        const files = []
-        for (const oneDoc of this.store.allDocuments) {
-          if (oneDoc.amount) {
-            bills.push(oneDoc)
-          } else {
-            files.push(oneDoc)
+    try {
+      this.log('info', '🤖 fetch starts')
+      await this.saveIdentity(this.store.userIdentity)
+      if (this.store.userCredentials) {
+        await this.saveCredentials(this.store.userCredentials)
+      }
+      for (let i = 0; i < numberOfContracts; i++) {
+        const billsDone = await this.fetchBills()
+        if (billsDone) {
+          // Some retrieved files may not have an amount associated (some schedules for example)
+          // so wee need to sort those out before saving to avoid errors in saveBills
+          const bills = []
+          const files = []
+          for (const oneDoc of this.store.allDocuments) {
+            if (oneDoc.amount) {
+              bills.push(oneDoc)
+            } else {
+              files.push(oneDoc)
+            }
+          }
+          await Promise.all([
+            this.saveBills(bills, {
+              context,
+              fileIdAttributes: ['vendorRef', 'filename'],
+              contentType: 'application/pdf',
+              qualificationLabel: 'energy_invoice',
+              subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            }),
+            this.saveFiles(files, {
+              context,
+              fileIdAttributes: ['vendorRef', 'filename'],
+              contentType: 'application/pdf',
+              qualificationLabel: 'energy_invoice',
+              subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            })
+          ])
+          // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
+          // So we avoid the contract page
+          if (i === 0) {
+            await this.fetchContracts()
+            await this.saveFiles(this.store.contract, {
+              context,
+              fileIdAttributes: ['filename'],
+              contentType: 'application/pdf',
+              qualificationLabel: 'energy_contract',
+              subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            })
           }
         }
-        await Promise.all([
-          this.saveBills(bills, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          }),
-          this.saveFiles(files, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          })
-        ])
-        // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
-        // So we avoid the contract page
-        if (i === 0) {
-          await this.fetchContracts()
-          await this.saveFiles(this.store.contract, {
-            context,
-            fileIdAttributes: ['filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_contract',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          })
+        if (numberOfContracts > 1 && i + 1 < numberOfContracts) {
+          this.log(
+            'info',
+            'More than 1 contract found, fetching bills and contract pdfs for the others'
+          )
+          await this.runInWorker('removeElement', '.cadre2')
+          await this.goto(contractSelectionPage)
+          await this.waitForElementInWorker('.cadre2')
+          await this.runInWorker('selectContract', i + 1)
+          await this.waitForElementInWorker(
+            'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+          )
+          await this.runInWorker(
+            'removeElement',
+            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+          )
+          await this.goto(contactInfosPage)
+          await this.waitForElementInWorker(
+            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+          )
         }
       }
-      if (numberOfContracts > 1 && i + 1 < numberOfContracts) {
-        this.log(
-          'info',
-          'More than 1 contract found, fetching bills and contract pdfs for the others'
-        )
-        await this.runInWorker('removeElement', '.cadre2')
-        await this.goto(contractSelectionPage)
-        await this.waitForElementInWorker('.cadre2')
-        await this.runInWorker('selectContract', i + 1)
-        await this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        )
-        await this.runInWorker(
-          'removeElement',
-          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-        )
-        await this.goto(contactInfosPage)
-        await this.waitForElementInWorker(
-          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-        )
-      }
+    } catch (err) {
+      this.log('error', `fetch error : ${err.message}`)
+      throw err
     }
   }
 
