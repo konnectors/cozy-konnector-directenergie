@@ -5909,7 +5909,6 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   // PILOT //
   // ////////
   async navigateToContactInformation() {
-    this.log('info', 'trying navigateToContactInformation...')
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
@@ -6014,7 +6013,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         await this.runInWorker('selectContract', 0)
       }
     }
-    await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation, { retries: 5 })
+    await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation, {
+      retries: 5,
+      onFailedAttempt: error => {
+        this.log(
+          'info',
+          `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+        )
+      }
+    })
     await this.runInWorker('getIdentity')
     if (numberOfContracts > 1) {
       this.log('info', 'Found more than 1 contract, fetching addresses')
