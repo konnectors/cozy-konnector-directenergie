@@ -5921,6 +5921,24 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
+
+  async reloadPageOnError() {
+    this.log('info', '📍️ reloadPageOnError starts')
+    await this.evaluateInWorker(function reloadError503Page() {
+      window.location.reload()
+    })
+    await Promise.race([
+      this.waitForElementInWorker('.cadre2'),
+      this.waitForElementInWorker('a[href="javascript:history.back();"]')
+    ])
+    if (await this.isElementInWorker('a[href="javascript:history.back();"]')) {
+      return false
+    }
+    if (await this.isElementInWorker('.cadre2')) {
+      return true
+    }
+  }
+
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
@@ -5990,6 +6008,24 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         else return false
       }
     )
+    const isError503Page = await this.evaluateInWorker(
+      function checkError503Page() {
+        if (document.body.innerHTML.match('Error 503 - Service Unavailable'))
+          return true
+        else return false
+      }
+    )
+    if (isError503Page) {
+      await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.reloadPageOnError.bind(this), {
+        retries: 5,
+        onFailedAttempt: error => {
+          this.log(
+            'info',
+            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+          )
+        }
+      })
+    }
     if (isContractSelectionPage) {
       this.log('info', 'Landed on the contracts selection page after login')
       const foundContractsNumber = await this.getNumberOfContracts()
@@ -6011,6 +6047,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         this.log('info', `Found ${foundContractsNumber} contracts`)
         numberOfContracts = foundContractsNumber
         await this.runInWorker('selectContract', 0)
+        await this.waitForElementInWorker('.cadre2')
       }
     }
     await (0,p_retry__WEBPACK_IMPORTED_MODULE_3__["default"])(this.navigateToContactInformation.bind(this), {
@@ -6027,6 +6064,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       this.log('info', 'Found more than 1 contract, fetching addresses')
       await this.goto(contractSelectionPage)
       await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
+      await this.runInWorkerUntilTrue({ method: 'checkAddressesElement' })
       const addresses = await this.runInWorker('getOtherContractsAddresses')
       const clientRefs = await this.runInWorker('getOtherContractsReferences')
       let i = 0
@@ -6062,11 +6100,17 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (elementToClick) {
       this.log('info', 'selectContract - elementToClick found')
       elementToClick.click()
+      for (const element of contractElements) {
+        element.remove()
+      }
     } else {
       this.log(
         'info',
         'selectContract - elementToClick not found, changing href'
       )
+      for (const element of contractElements) {
+        element.remove()
+      }
       document.location.href = 'https://www.totalenergies.fr/clients/accueil'
     }
   }
@@ -6756,16 +6800,51 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     return false
   }
 
+  async checkAddressesElement() {
+    this.log('info', '📍️ checkAddressesElement starts')
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
+      () => {
+        const elements = document.querySelectorAll('.cadre2')
+        const readyElements = []
+        for (const element of elements) {
+          const foundAddress = element
+            .querySelector('div[class="mt-dm largeur-auto"]')
+            .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
+            .replace(/\n/g, '')
+          const [, postCodeAndCity] = foundAddress.split(', ')
+          if (postCodeAndCity === undefined) {
+            this.log('debug', 'postCodeAndCity is undefined')
+            continue
+          } else {
+            this.log('debug', 'element ready')
+            readyElements.push(element)
+          }
+        }
+        if (readyElements.length === elements.length) {
+          this.log('debug', 'same length for both arrays')
+          return true
+        }
+        return false
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    return true
+  }
+
   getOtherContractsAddresses() {
     this.log('info', 'getOtherContractsAddresses starts')
     let addresses = []
     const elements = document.querySelectorAll('.cadre2')
     // i = 1 because we dont need the first addresse, we already get it
     for (let i = 1; i < elements.length; i++) {
-      const foundAddress = elements[i].querySelector(
-        'div[class="mt-dm largeur-auto"]'
-      ).textContent
-      const [street, postCodeAndCity] = foundAddress.split(',  ')
+      const foundAddress = elements[i]
+        .querySelector('div[class="mt-dm largeur-auto"]')
+        .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
+        .replace(/\n/g, '')
+      const [street, postCodeAndCity] = foundAddress.split(', ')
       const formattedAddress = `${street} ${postCodeAndCity}`.trim()
       const postCode = postCodeAndCity.trim().substring(0, 5)
       const city = postCodeAndCity.trim().substring(5).trim()
@@ -6820,6 +6899,7 @@ connector
       'checkInfosPageTitle',
       'checkContractPageTitle',
       'checkIfAskingCaptcha',
+      'checkAddressesElement',
       'getOtherContractsAddresses',
       'getOtherContractsReferences',
       'selectContract',
