@@ -38,6 +38,24 @@ class TemplateContentScript extends ContentScript {
     )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
+
+  async reloadPageOnError() {
+    this.log('info', '📍️ reloadPageOnError starts')
+    await this.evaluateInWorker(function reloadError503Page() {
+      window.location.reload()
+    })
+    await Promise.race([
+      this.waitForElementInWorker('.cadre2'),
+      this.waitForElementInWorker('a[href="javascript:history.back();"]')
+    ])
+    if (await this.isElementInWorker('a[href="javascript:history.back();"]')) {
+      return false
+    }
+    if (await this.isElementInWorker('.cadre2')) {
+      return true
+    }
+  }
+
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
@@ -107,6 +125,24 @@ class TemplateContentScript extends ContentScript {
         else return false
       }
     )
+    const isError503Page = await this.evaluateInWorker(
+      function checkError503Page() {
+        if (document.body.innerHTML.match('Error 503 - Service Unavailable'))
+          return true
+        else return false
+      }
+    )
+    if (isError503Page) {
+      await pRetry(this.reloadPageOnError.bind(this), {
+        retries: 5,
+        onFailedAttempt: error => {
+          this.log(
+            'info',
+            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+          )
+        }
+      })
+    }
     if (isContractSelectionPage) {
       this.log('info', 'Landed on the contracts selection page after login')
       const foundContractsNumber = await this.getNumberOfContracts()
@@ -128,6 +164,7 @@ class TemplateContentScript extends ContentScript {
         this.log('info', `Found ${foundContractsNumber} contracts`)
         numberOfContracts = foundContractsNumber
         await this.runInWorker('selectContract', 0)
+        await this.waitForElementInWorker('.cadre2')
       }
     }
     await pRetry(this.navigateToContactInformation.bind(this), {
@@ -180,11 +217,17 @@ class TemplateContentScript extends ContentScript {
     if (elementToClick) {
       this.log('info', 'selectContract - elementToClick found')
       elementToClick.click()
+      for (const element of contractElements) {
+        element.remove()
+      }
     } else {
       this.log(
         'info',
         'selectContract - elementToClick not found, changing href'
       )
+      for (const element of contractElements) {
+        element.remove()
+      }
       document.location.href = 'https://www.totalenergies.fr/clients/accueil'
     }
   }
