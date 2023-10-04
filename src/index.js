@@ -144,6 +144,7 @@ class TemplateContentScript extends ContentScript {
       this.log('info', 'Found more than 1 contract, fetching addresses')
       await this.goto(contractSelectionPage)
       await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
+      await this.runInWorkerUntilTrue({ method: 'checkAddressesElement' })
       const addresses = await this.runInWorker('getOtherContractsAddresses')
       const clientRefs = await this.runInWorker('getOtherContractsReferences')
       let i = 0
@@ -873,16 +874,51 @@ class TemplateContentScript extends ContentScript {
     return false
   }
 
+  async checkAddressesElement() {
+    this.log('info', '📍️ checkAddressesElement starts')
+    await waitFor(
+      () => {
+        const elements = document.querySelectorAll('.cadre2')
+        const readyElements = []
+        for (const element of elements) {
+          const foundAddress = element
+            .querySelector('div[class="mt-dm largeur-auto"]')
+            .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
+            .replace(/\n/g, '')
+          const [, postCodeAndCity] = foundAddress.split(', ')
+          if (postCodeAndCity === undefined) {
+            this.log('debug', 'postCodeAndCity is undefined')
+            continue
+          } else {
+            this.log('debug', 'element ready')
+            readyElements.push(element)
+          }
+        }
+        if (readyElements.length === elements.length) {
+          this.log('debug', 'same length for both arrays')
+          return true
+        }
+        return false
+      },
+      {
+        interval: 1000,
+        timeout: 30 * 1000
+      }
+    )
+    return true
+  }
+
   getOtherContractsAddresses() {
     this.log('info', 'getOtherContractsAddresses starts')
     let addresses = []
     const elements = document.querySelectorAll('.cadre2')
     // i = 1 because we dont need the first addresse, we already get it
     for (let i = 1; i < elements.length; i++) {
-      const foundAddress = elements[i].querySelector(
-        'div[class="mt-dm largeur-auto"]'
-      ).textContent
-      const [street, postCodeAndCity] = foundAddress.split(',  ')
+      const foundAddress = elements[i]
+        .querySelector('div[class="mt-dm largeur-auto"]')
+        .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
+        .replace(/\n/g, '')
+      const [street, postCodeAndCity] = foundAddress.split(', ')
       const formattedAddress = `${street} ${postCodeAndCity}`.trim()
       const postCode = postCodeAndCity.trim().substring(0, 5)
       const city = postCodeAndCity.trim().substring(5).trim()
@@ -937,6 +973,7 @@ connector
       'checkInfosPageTitle',
       'checkContractPageTitle',
       'checkIfAskingCaptcha',
+      'checkAddressesElement',
       'getOtherContractsAddresses',
       'getOtherContractsReferences',
       'selectContract',
