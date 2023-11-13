@@ -59,7 +59,14 @@ class TemplateContentScript extends ContentScript {
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
-    await this.waitForElementInWorker('.menu-p-btn-ec')
+    await Promise.race([
+      this.waitForElementInWorker('.menu-p-btn-ec'),
+      this.waitForElementInWorker('#formz-authentification-form-login')
+    ])
+    if (await this.isElementInWorker('#formz-authentification-form-login')) {
+      this.log('info', 'baseUrl leads to loginForm, continue')
+      return
+    }
     await this.runInWorker('click', '.menu-p-btn-ec')
     await Promise.race([
       this.waitForElementInWorker('#formz-authentification-form-login'),
@@ -269,22 +276,20 @@ class TemplateContentScript extends ContentScript {
             files.push(oneDoc)
           }
         }
-        await Promise.all([
-          this.saveBills(bills, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          }),
-          this.saveFiles(files, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          })
-        ])
+        await this.saveBills(bills, {
+          context,
+          fileIdAttributes: ['vendorRef', 'filename'],
+          contentType: 'application/pdf',
+          qualificationLabel: 'energy_invoice',
+          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+        })
+        await this.saveFiles(files, {
+          context,
+          fileIdAttributes: ['vendorRef', 'filename'],
+          contentType: 'application/pdf',
+          qualificationLabel: 'energy_invoice',
+          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+        })
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
         // So we avoid the contract page
         if (i === 0) {
