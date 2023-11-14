@@ -59,7 +59,14 @@ class TemplateContentScript extends ContentScript {
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
-    await this.waitForElementInWorker('.menu-p-btn-ec')
+    await Promise.race([
+      this.waitForElementInWorker('.menu-p-btn-ec'),
+      this.waitForElementInWorker('#formz-authentification-form-login')
+    ])
+    if (await this.isElementInWorker('#formz-authentification-form-login')) {
+      this.log('info', 'baseUrl leads to loginForm, continue')
+      return
+    }
     await this.runInWorker('click', '.menu-p-btn-ec')
     await Promise.race([
       this.waitForElementInWorker('#formz-authentification-form-login'),
@@ -185,13 +192,17 @@ class TemplateContentScript extends ContentScript {
       const addresses = await this.runInWorker('getOtherContractsAddresses')
       const clientRefs = await this.runInWorker('getOtherContractsReferences')
       let i = 0
-      for (const address of addresses) {
-        this.store.userIdentity.address.push(address)
-        this.store.userIdentity.clientRefs.push({
-          linkedAddress: address.formattedAddress,
-          contractNumber: clientRefs[i]
-        })
-        i++
+      if (!addresses.length) {
+        this.log('warn', 'No addresses found for other contracts')
+      } else {
+        for (const address of addresses) {
+          this.store.userIdentity.address.push(address)
+          this.store.userIdentity.clientRefs.push({
+            linkedAddress: address.formattedAddress,
+            contractNumber: clientRefs[i]
+          })
+          i++
+        }
       }
       await this.navigateToPersonnalInfos()
     }
@@ -265,22 +276,20 @@ class TemplateContentScript extends ContentScript {
             files.push(oneDoc)
           }
         }
-        await Promise.all([
-          this.saveBills(bills, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          }),
-          this.saveFiles(files, {
-            context,
-            fileIdAttributes: ['vendorRef', 'filename'],
-            contentType: 'application/pdf',
-            qualificationLabel: 'energy_invoice',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-          })
-        ])
+        await this.saveBills(bills, {
+          context,
+          fileIdAttributes: ['vendorRef', 'filename'],
+          contentType: 'application/pdf',
+          qualificationLabel: 'energy_invoice',
+          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+        })
+        await this.saveFiles(files, {
+          context,
+          fileIdAttributes: ['vendorRef', 'filename'],
+          contentType: 'application/pdf',
+          qualificationLabel: 'energy_invoice',
+          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+        })
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
         // So we avoid the contract page
         if (i === 0) {
@@ -961,16 +970,31 @@ class TemplateContentScript extends ContentScript {
         .querySelector('div[class="mt-dm largeur-auto"]')
         .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
         .replace(/\n/g, '')
-      const [street, postCodeAndCity] = foundAddress.split(', ')
-      const formattedAddress = `${street} ${postCodeAndCity}`.trim()
-      const postCode = postCodeAndCity.trim().substring(0, 5)
-      const city = postCodeAndCity.trim().substring(5).trim()
-      addresses.push({
-        street,
-        postCode,
-        city,
-        formattedAddress
-      })
+        .trim()
+      if (!foundAddress) {
+        this.log('warn', `No addresse found for ${i} contract`)
+        continue
+      }
+      const postCode = foundAddress.match(/\d{5}/g)[0]
+      if (!postCode) {
+        this.log(
+          'warn',
+          `Addresse was found but no postCode match, abort addresse fetching for ${i} contract`
+        )
+        continue
+      } else {
+        const matchedAddress = foundAddress.match(
+          /([\s\S]+?)\s*,?\s*(\d{5})\s+([\s\S]+)/
+        )
+        const [, street, postCode, city] = matchedAddress
+        const formattedAddress = `${street} ${postCode} ${city}`.trim()
+        addresses.push({
+          street,
+          postCode,
+          city,
+          formattedAddress
+        })
+      }
     }
     return addresses
   }
