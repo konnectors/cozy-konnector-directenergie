@@ -132,14 +132,18 @@ class TemplateContentScript extends ContentScript {
         else return false
       }
     )
-    const isError503Page = await this.evaluateInWorker(
-      function checkError503Page() {
-        if (document.body.innerHTML.match('Error 503 - Service Unavailable'))
-          return true
-        else return false
+    const isError = await this.evaluateInWorker(function checkErrorPage() {
+      if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
+        this.log('warn', 'Found error 503, trying to reload')
+        return true
       }
-    )
-    if (isError503Page) {
+      if (document.body.innerHTML.match('Proxy Error')) {
+        this.log('warn', 'Found proxy error, trying to reload')
+        return true
+      }
+      return false
+    })
+    if (isError) {
       await pRetry(this.reloadPageOnError.bind(this), {
         retries: 5,
         onFailedAttempt: error => {
@@ -156,6 +160,28 @@ class TemplateContentScript extends ContentScript {
       this.log('info', `Found ${foundContractsNumber} contracts`)
       numberOfContracts = foundContractsNumber
       await this.runInWorker('selectContract', 0)
+      const isError = await this.evaluateInWorker(function checkErrorPage() {
+        if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
+          this.log('warn', 'Found error 503, trying to reload')
+          return true
+        }
+        if (document.body.innerHTML.match('Proxy Error')) {
+          this.log('warn', 'Found proxy error, trying to reload')
+          return true
+        }
+        return false
+      })
+      if (isError) {
+        await pRetry(this.reloadPageOnError.bind(this), {
+          retries: 5,
+          onFailedAttempt: error => {
+            this.log(
+              'info',
+              `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+            )
+          }
+        })
+      }
     } else {
       this.log('info', 'Landed on the home page after login')
       const changeAccountLink = await this.isElementInWorker(
@@ -171,6 +197,30 @@ class TemplateContentScript extends ContentScript {
         this.log('info', `Found ${foundContractsNumber} contracts`)
         numberOfContracts = foundContractsNumber
         await this.runInWorker('selectContract', 0)
+        const isError = await this.evaluateInWorker(function checkErrorPage() {
+          if (
+            document.body.innerHTML.match('Error 503 - Service Unavailable')
+          ) {
+            this.log('warn', 'Found error 503, trying to reload')
+            return true
+          }
+          if (document.body.innerHTML.match('Proxy Error')) {
+            this.log('warn', 'Found proxy error, trying to reload')
+            return true
+          }
+          return false
+        })
+        if (isError) {
+          await pRetry(this.reloadPageOnError.bind(this), {
+            retries: 5,
+            onFailedAttempt: error => {
+              this.log(
+                'info',
+                `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+              )
+            }
+          })
+        }
         await this.waitForElementInWorker('.cadre2')
       }
     }
@@ -320,9 +370,41 @@ class TemplateContentScript extends ContentScript {
           'a[href="/clients/mes-factures/mon-historique-de-factures"]'
         )
         await this.goto(contactInfosPage)
-        await this.waitForElementInWorker(
-          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-        )
+
+        // At this point, on some users accounts, we noticed we could get a "proxy error"
+        // not sure what's triggering this, but for now we'll workaround with a reload
+        const isError = await this.evaluateInWorker(function checkErrorPage() {
+          if (
+            document.body.innerHTML.match('Error 503 - Service Unavailable')
+          ) {
+            this.log('warn', 'Found error 503, trying to reload')
+            return true
+          }
+          if (document.body.innerHTML.match('Proxy Error')) {
+            this.log('warn', 'Found proxy error, trying to reload')
+            return true
+          }
+          return false
+        })
+        if (isError) {
+          await pRetry(this.reloadPageOnError.bind(this), {
+            retries: 5,
+            onFailedAttempt: error => {
+              this.log(
+                'info',
+                `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+              )
+            }
+          })
+          await this.waitForElementInWorker(
+            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+          )
+          this.log('info', 'Reload after proxyError successfull')
+        } else {
+          await this.waitForElementInWorker(
+            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
+          )
+        }
       }
     }
   }
@@ -415,6 +497,28 @@ class TemplateContentScript extends ContentScript {
   async navigateToPersonnalInfos() {
     this.log('info', 'navigateToPersonnalInfos starts')
     await this.runInWorker('selectContract', 0)
+    const isError = await this.evaluateInWorker(function checkErrorPage() {
+      if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
+        this.log('warn', 'Found error 503, trying to reload')
+        return true
+      }
+      if (document.body.innerHTML.match('Proxy Error')) {
+        this.log('warn', 'Found proxy error, trying to reload')
+        return true
+      }
+      return false
+    })
+    if (isError) {
+      await pRetry(this.reloadPageOnError.bind(this), {
+        retries: 5,
+        onFailedAttempt: error => {
+          this.log(
+            'info',
+            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+          )
+        }
+      })
+    }
     await Promise.all([
       this.waitForElementInWorker(
         'a[href*="/clients/connexion?logintype=logout"]'
