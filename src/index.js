@@ -22,10 +22,72 @@ const contactInfosPage =
 let numberOfContracts = 1
 
 class TemplateContentScript extends ContentScript {
+  onWorkerReady() {
+    if (document.readyState !== 'loading') {
+      this.log('info', 'readyState')
+      this.watchLoadingErrors.bind(this)()
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        this.log('info', 'DOMLoaded')
+        this.watchLoadingErrors.bind(this)()
+      })
+    }
+  }
+
+  onWorkerEvent({ event, payload }) {
+    this.log('info', 'onWorkerEvent starts')
+    if (event === 'errorDetected') {
+      this.log('info', `Error ${payload} found, sending error to store`)
+      this.store.foundError = { event, payload }
+    }
+  }
+
+  watchLoadingErrors() {
+    this.log('info', '📍️ watchLoadingErrors starts')
+    const currentBody = document.body
+    const isError503 = currentBody?.innerHTML.match(
+      'Error 503 - Service Unavailable'
+    )
+    const isError404 = currentBody?.innerHTML.match(
+      "404 - Oups ! Cette page n'existe pas."
+    )
+    const isErrorProxy = currentBody?.innerHTML.match('Proxy Error')
+    if (isError503) {
+      this.log('info', 'Found error 503')
+      const event = 'errorDetected'
+      const payload = '503'
+      this.store.foundError = { event, payload }
+      this.bridge.emit('workerEvent', {
+        event,
+        payload
+      })
+    } else if (isErrorProxy) {
+      this.log('info', 'Found a proxy error')
+      const event = 'errorDetected'
+      const payload = 'proxy'
+      this.store.foundError = { event, payload }
+      this.bridge.emit('workerEvent', {
+        event,
+        payload
+      })
+    } else if (isError404) {
+      this.log('info', 'Found error 404')
+      const event = 'errorDetected'
+      const payload = '404'
+      this.bridge.emit('workerEvent', {
+        event,
+        payload
+      })
+    } else {
+      this.log('info', 'None of the listed error found for this page')
+    }
+  }
+
   // ////////
   // PILOT //
   // ////////
   async navigateToContactInformation() {
+    this.log('info', '📍️ navigateToContactInformation starts')
     await this.waitForElementInWorker(
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
@@ -33,36 +95,89 @@ class TemplateContentScript extends ContentScript {
       'click',
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
-    await this.waitForElementInWorker(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    )
+    await Promise.race([
+      this.checkForErrors(),
+      this.waitForElementInWorker(
+        'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+      )
+    ])
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
+  }
+
+  async checkForErrors() {
+    this.log('info', '📍️ checkForErrors starts')
+    await new Promise(resolve => {
+      this.bridge.addEventListener('workerEvent', ({ payload, event }) => {
+        this.log(
+          'warn',
+          `checkForErrors resolved with ${event} => error ${payload}`
+        )
+        resolve()
+      })
+    })
   }
 
   async reloadPageOnError() {
     this.log('info', '📍️ reloadPageOnError starts')
-    await this.evaluateInWorker(function reloadError503Page() {
-      window.location.reload()
+    await this.evaluateInWorker(async function reloadErrorPage() {
+      await window.location.reload()
     })
+    // As this function is generic, we need to race every awaited elements
+    // and possible errors elements during the entire konnector's execution
     await Promise.race([
       this.waitForElementInWorker('.cadre2'),
-      this.waitForElementInWorker('a[href="javascript:history.back();"]')
+      this.waitForElementInWorker('.arrondi-04:not(img)'),
+      this.waitForElementInWorker('a[href="javascript:history.back();"]'),
+      this.waitForElementInWorker('img[src*="/page-404.png"]')
     ])
-    if (await this.isElementInWorker('a[href="javascript:history.back();"]')) {
+    if (
+      (await this.isElementInWorker('a[href="javascript:history.back();"]')) ||
+      (await this.isElementInWorker('img[src*="/page-404.png"]'))
+    ) {
       return false
     }
     if (await this.isElementInWorker('.cadre2')) {
       return true
     }
+    // We need to precise no images here, the class is used on the image shown on a 404 error
+    if (await this.isElementInWorker('.arrondi-04:not(img)')) {
+      return true
+    }
+    // If there is no body, it means we found another error after the reload
+    // as the checking function remove the complete body before sending the error to the pilot
+    if (!(await this.isElementInWorker('body'))) {
+      return false
+    }
+  }
+
+  async handleError() {
+    this.log('info', '📍️ handleError starts')
+    this.log(
+      'warn',
+      `Error ${this.store.foundError.payload} found on page change, trying to reload`
+    )
+    await this.evaluateInWorker(async function removeErrorBody() {
+      document.querySelector('body').remove()
+    })
+    const isSuccess = await this.reloadPageOnError()
+    if (!isSuccess) {
+      throw new Error('VENDOR_DOWN')
+    }
+    // Removing error object if reload works out so it is not present on the next check
+    delete this.store.foundError
   }
 
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
     await Promise.race([
+      this.checkForErrors(),
       this.waitForElementInWorker('.menu-p-btn-ec'),
       this.waitForElementInWorker('#formz-authentification-form-login')
     ])
+    if (this.store.foundError) {
+      await this.handleError()
+    }
     if (await this.isElementInWorker('#formz-authentification-form-login')) {
       this.log('info', 'baseUrl leads to loginForm, continue')
       return
@@ -78,6 +193,7 @@ class TemplateContentScript extends ContentScript {
 
   async ensureAuthenticated({ account }) {
     this.log('info', '🤖 ensureAuthenticated starts')
+    this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
     if (!account) {
       await this.ensureNotAuthenticated()
     }
@@ -125,6 +241,13 @@ class TemplateContentScript extends ContentScript {
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite starts')
+    await Promise.race([
+      this.waitForElementInWorker('.cadre2'),
+      this.checkForErrors()
+    ])
+    if (this.store.foundError) {
+      await this.handleError()
+    }
     const isContractSelectionPage = await this.evaluateInWorker(
       function checkContractSelectionPage() {
         if (document.location.href.includes('/clients/selection-compte'))
@@ -132,55 +255,18 @@ class TemplateContentScript extends ContentScript {
         else return false
       }
     )
-    const isError = await this.evaluateInWorker(function checkErrorPage() {
-      if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
-        this.log('warn', 'Found error 503, trying to reload')
-        return true
-      }
-      if (document.body.innerHTML.match('Proxy Error')) {
-        this.log('warn', 'Found proxy error, trying to reload')
-        return true
-      }
-      return false
-    })
-    if (isError) {
-      await pRetry(this.reloadPageOnError.bind(this), {
-        retries: 5,
-        onFailedAttempt: error => {
-          this.log(
-            'info',
-            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-          )
-        }
-      })
-    }
     if (isContractSelectionPage) {
       this.log('info', 'Landed on the contracts selection page after login')
       const foundContractsNumber = await this.getNumberOfContracts()
       this.log('info', `Found ${foundContractsNumber} contracts`)
       numberOfContracts = foundContractsNumber
       await this.runInWorker('selectContract', 0)
-      const isError = await this.evaluateInWorker(function checkErrorPage() {
-        if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
-          this.log('warn', 'Found error 503, trying to reload')
-          return true
-        }
-        if (document.body.innerHTML.match('Proxy Error')) {
-          this.log('warn', 'Found proxy error, trying to reload')
-          return true
-        }
-        return false
-      })
-      if (isError) {
-        await pRetry(this.reloadPageOnError.bind(this), {
-          retries: 5,
-          onFailedAttempt: error => {
-            this.log(
-              'info',
-              `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-            )
-          }
-        })
+      await Promise.race([
+        this.waitForElementInWorker('.cadre2'),
+        this.checkForErrors()
+      ])
+      if (this.store.foundError) {
+        await this.handleError()
       }
     } else {
       this.log('info', 'Landed on the home page after login')
@@ -197,31 +283,13 @@ class TemplateContentScript extends ContentScript {
         this.log('info', `Found ${foundContractsNumber} contracts`)
         numberOfContracts = foundContractsNumber
         await this.runInWorker('selectContract', 0)
-        const isError = await this.evaluateInWorker(function checkErrorPage() {
-          if (
-            document.body.innerHTML.match('Error 503 - Service Unavailable')
-          ) {
-            this.log('warn', 'Found error 503, trying to reload')
-            return true
-          }
-          if (document.body.innerHTML.match('Proxy Error')) {
-            this.log('warn', 'Found proxy error, trying to reload')
-            return true
-          }
-          return false
-        })
-        if (isError) {
-          await pRetry(this.reloadPageOnError.bind(this), {
-            retries: 5,
-            onFailedAttempt: error => {
-              this.log(
-                'info',
-                `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-              )
-            }
-          })
+        await Promise.race([
+          this.waitForElementInWorker('.cadre2'),
+          this.checkForErrors()
+        ])
+        if (this.store.foundError) {
+          await this.handleError()
         }
-        await this.waitForElementInWorker('.cadre2')
       }
     }
     await pRetry(this.navigateToContactInformation.bind(this), {
@@ -362,48 +430,28 @@ class TemplateContentScript extends ContentScript {
         await this.goto(contractSelectionPage)
         await this.waitForElementInWorker('.cadre2')
         await this.runInWorker('selectContract', i + 1)
-        await this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        )
+        await Promise.race([
+          this.waitForElementInWorker(
+            'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+          ),
+          this.checkForErrors()
+        ])
+        if (this.store.foundError) {
+          await this.handleError()
+        }
         await this.runInWorker(
           'removeElement',
           'a[href="/clients/mes-factures/mon-historique-de-factures"]'
         )
         await this.goto(contactInfosPage)
-
-        // At this point, on some users accounts, we noticed we could get a "proxy error"
-        // not sure what's triggering this, but for now we'll workaround with a reload
-        const isError = await this.evaluateInWorker(function checkErrorPage() {
-          if (
-            document.body.innerHTML.match('Error 503 - Service Unavailable')
-          ) {
-            this.log('warn', 'Found error 503, trying to reload')
-            return true
-          }
-          if (document.body.innerHTML.match('Proxy Error')) {
-            this.log('warn', 'Found proxy error, trying to reload')
-            return true
-          }
-          return false
-        })
-        if (isError) {
-          await pRetry(this.reloadPageOnError.bind(this), {
-            retries: 5,
-            onFailedAttempt: error => {
-              this.log(
-                'info',
-                `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-              )
-            }
-          })
-          await this.waitForElementInWorker(
+        await Promise.race([
+          this.waitForElementInWorker(
             'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-          )
-          this.log('info', 'Reload after proxyError successfull')
-        } else {
-          await this.waitForElementInWorker(
-            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-          )
+          ),
+          this.checkForErrors()
+        ])
+        if (this.store.foundError) {
+          await this.handleError()
         }
       }
     }
@@ -497,46 +545,36 @@ class TemplateContentScript extends ContentScript {
   async navigateToPersonnalInfos() {
     this.log('info', 'navigateToPersonnalInfos starts')
     await this.runInWorker('selectContract', 0)
-    const isError = await this.evaluateInWorker(function checkErrorPage() {
-      if (document.body.innerHTML.match('Error 503 - Service Unavailable')) {
-        this.log('warn', 'Found error 503, trying to reload')
-        return true
-      }
-      if (document.body.innerHTML.match('Proxy Error')) {
-        this.log('warn', 'Found proxy error, trying to reload')
-        return true
-      }
-      return false
-    })
-    if (isError) {
-      await pRetry(this.reloadPageOnError.bind(this), {
-        retries: 5,
-        onFailedAttempt: error => {
-          this.log(
-            'info',
-            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-          )
-        }
-      })
-    }
-    await Promise.all([
-      this.waitForElementInWorker(
-        'a[href*="/clients/connexion?logintype=logout"]'
-      ),
-      this.waitForElementInWorker(
-        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-      ),
-      this.waitForElementInWorker(
-        'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-      )
+    await Promise.race([
+      Promise.all([
+        this.waitForElementInWorker(
+          'a[href*="/clients/connexion?logintype=logout"]'
+        ),
+        this.waitForElementInWorker(
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        ),
+        this.waitForElementInWorker(
+          'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+        )
+      ]),
+      this.checkForErrors()
     ])
+    if (this.store.foundError) {
+      await this.handleError()
+    }
     await this.runInWorker(
       'click',
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
-    await this.waitForElementInWorker(
-      'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-    )
+    await Promise.race([
+      this.waitForElementInWorker(
+        'h1[class="text-headline-xl d-block mt-std--medium-down"]'
+      ),
+      this.checkForErrors()
+    ])
+    if (this.store.foundError) {
+      await this.handleError()
+    }
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
 
@@ -660,7 +698,7 @@ class TemplateContentScript extends ContentScript {
 
   async getIdentity() {
     this.log('info', 'getIdentity starts')
-    const infosElements = document.querySelectorAll('.cadre2')
+    const infosElements = document.querySelectorAll('.arrondi-04')
     const familyName = infosElements[0].children[0].textContent.split(':')[1]
     const name = infosElements[0].children[1].textContent.split(':')[1]
     const clientRef = infosElements[0].children[2].textContent.split(':')[1]
@@ -725,7 +763,7 @@ class TemplateContentScript extends ContentScript {
 
   async getContract() {
     this.log('info', 'getContract starts')
-    const contractElement = document.querySelector('.cadre2')
+    const contractElement = document.querySelector('.arrondi-04')
     const offerName = contractElement.querySelector('h2').innerHTML
     const rawStartDate = contractElement.querySelector(
       'p[class="font-700"]'
