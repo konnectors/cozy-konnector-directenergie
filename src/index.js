@@ -96,7 +96,7 @@ class TemplateContentScript extends ContentScript {
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
     await Promise.race([
-      this.checkForErrors(),
+      this.waitForErrors(),
       this.waitForElementInWorker(
         'h1[class="text-headline-xl d-block mt-std--medium-down"]'
       )
@@ -104,23 +104,26 @@ class TemplateContentScript extends ContentScript {
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
 
-  async checkForErrors() {
-    this.log('info', '📍️ checkForErrors starts')
+  async waitForErrors() {
+    this.log('info', '📍️ waitForErrors starts')
     await new Promise(resolve => {
-      this.bridge.addEventListener('workerEvent', ({ payload, event }) => {
-        this.log(
-          'warn',
-          `checkForErrors resolved with ${event} => error ${payload}`
-        )
-        resolve()
-      })
+      const listener = ({ event, payload }) => {
+        if (event === 'errorDetected') {
+          this.log(
+            'warn',
+            `waitForErrors resolved with ${event} => error ${payload}`
+          )
+          resolve()
+        }
+      }
+      this.bridge.addEventListener('workerEvent', listener)
     })
   }
 
   async reloadPageOnError() {
     this.log('info', '📍️ reloadPageOnError starts')
-    await this.evaluateInWorker(async function reloadErrorPage() {
-      await window.location.reload()
+    await this.evaluateInWorker(function reloadErrorPage() {
+      window.location.reload()
     })
     // As this function is generic, we need to race every awaited elements
     // and possible errors elements during the entire konnector's execution
@@ -171,7 +174,7 @@ class TemplateContentScript extends ContentScript {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
     await Promise.race([
-      this.checkForErrors(),
+      this.waitForErrors(),
       this.waitForElementInWorker('.menu-p-btn-ec'),
       this.waitForElementInWorker('#formz-authentification-form-login')
     ])
@@ -243,7 +246,7 @@ class TemplateContentScript extends ContentScript {
     this.log('info', '🤖 getUserDataFromWebsite starts')
     await Promise.race([
       this.waitForElementInWorker('.cadre2'),
-      this.checkForErrors()
+      this.waitForErrors()
     ])
     if (this.store.foundError) {
       await this.handleError()
@@ -263,7 +266,7 @@ class TemplateContentScript extends ContentScript {
       await this.runInWorker('selectContract', 0)
       await Promise.race([
         this.waitForElementInWorker('.cadre2'),
-        this.checkForErrors()
+        this.waitForErrors()
       ])
       if (this.store.foundError) {
         await this.handleError()
@@ -285,7 +288,7 @@ class TemplateContentScript extends ContentScript {
         await this.runInWorker('selectContract', 0)
         await Promise.race([
           this.waitForElementInWorker('.cadre2'),
-          this.checkForErrors()
+          this.waitForErrors()
         ])
         if (this.store.foundError) {
           await this.handleError()
@@ -434,7 +437,7 @@ class TemplateContentScript extends ContentScript {
           this.waitForElementInWorker(
             'a[href="/clients/mon-compte/gerer-mes-comptes"]'
           ),
-          this.checkForErrors()
+          this.waitForErrors()
         ])
         if (this.store.foundError) {
           await this.handleError()
@@ -448,7 +451,7 @@ class TemplateContentScript extends ContentScript {
           this.waitForElementInWorker(
             'a[href="/clients/mes-factures/mon-historique-de-factures"]'
           ),
-          this.checkForErrors()
+          this.waitForErrors()
         ])
         if (this.store.foundError) {
           await this.handleError()
@@ -557,7 +560,7 @@ class TemplateContentScript extends ContentScript {
           'a[href="/clients/mon-compte/mes-infos-de-contact"]'
         )
       ]),
-      this.checkForErrors()
+      this.waitForErrors()
     ])
     if (this.store.foundError) {
       await this.handleError()
@@ -570,7 +573,7 @@ class TemplateContentScript extends ContentScript {
       this.waitForElementInWorker(
         'h1[class="text-headline-xl d-block mt-std--medium-down"]'
       ),
-      this.checkForErrors()
+      this.waitForErrors()
     ])
     if (this.store.foundError) {
       await this.handleError()
