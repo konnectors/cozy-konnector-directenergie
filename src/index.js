@@ -12,8 +12,8 @@ const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
 const contractSelectionPage =
   'https://www.totalenergies.fr/clients/selection-compte'
-const contactInfosPage =
-  'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
+// const contactInfosPage =
+//   'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
 // Keeping this urls around in case they're needed in the future
 // const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
 // const billsHistoricPage =
@@ -436,20 +436,6 @@ class TemplateContentScript extends ContentScript {
         await Promise.race([
           this.waitForElementInWorker(
             'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-          ),
-          this.waitForErrors()
-        ])
-        if (this.store.foundError) {
-          await this.handleError()
-        }
-        await this.runInWorker(
-          'removeElement',
-          'a[href="/clients/mes-factures/mon-historique-de-factures"]'
-        )
-        await this.goto(contactInfosPage)
-        await Promise.race([
-          this.waitForElementInWorker(
-            'a[href="/clients/mes-factures/mon-historique-de-factures"]'
           ),
           this.waitForErrors()
         ])
