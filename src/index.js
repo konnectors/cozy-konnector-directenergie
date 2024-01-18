@@ -379,6 +379,10 @@ class TemplateContentScript extends ContentScript {
 
   async fetch(context) {
     this.log('info', '🤖 fetch starts')
+    const clientRefs = this.store.userIdentity.clientRefs
+    // remove clientRefs from identity before saving to not mess with MesPapiers app
+    delete this.store.userIdentity.clientRefs
+
     await this.saveIdentity(this.store.userIdentity)
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
@@ -402,14 +406,14 @@ class TemplateContentScript extends ContentScript {
           fileIdAttributes: ['vendorRef', 'filename'],
           contentType: 'application/pdf',
           qualificationLabel: 'energy_invoice',
-          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+          subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}`
         })
         await this.saveFiles(files, {
           context,
           fileIdAttributes: ['vendorRef', 'filename'],
           contentType: 'application/pdf',
           qualificationLabel: 'energy_invoice',
-          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+          subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}`
         })
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
         // So we avoid the contract page
@@ -420,7 +424,7 @@ class TemplateContentScript extends ContentScript {
             fileIdAttributes: ['filename'],
             contentType: 'application/pdf',
             qualificationLabel: 'energy_contract',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}`
           })
         }
       }
@@ -687,16 +691,18 @@ class TemplateContentScript extends ContentScript {
 
   async getIdentity() {
     this.log('info', 'getIdentity starts')
-    const infosElements = document.querySelectorAll('.arrondi-04')
-    const familyName = infosElements[0].children[0].textContent.split(':')[1]
-    const name = infosElements[0].children[1].textContent.split(':')[1]
-    const clientRef = infosElements[0].children[2].textContent.split(':')[1]
-    const phoneNumber = infosElements[1].children[0].textContent.split(':')[1]
-    const email = infosElements[1].children[1].textContent.split(':')[1].trim()
-    const rawAddress = infosElements[2].children[0].textContent.replace(
-      / {2}/g,
-      ' '
+    const infosElements = document.querySelectorAll(
+      '.arrondi-04 > div > p > span'
     )
+    const addressElement = document.querySelector(
+      '.arrondi-04 > div > .font-700'
+    )
+    const familyName = infosElements[0].textContent
+    const name = infosElements[1].textContent
+    const clientRef = infosElements[2].textContent
+    const phoneNumber = infosElements[3].textContent
+    const email = infosElements[4].textContent
+    const rawAddress = addressElement.textContent.replace(/ {2}/g, ' ')
     let splittedAddress
     if (rawAddress.includes('<Br/>')) {
       let cleanedAddress
