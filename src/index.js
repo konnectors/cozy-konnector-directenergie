@@ -379,6 +379,10 @@ class TemplateContentScript extends ContentScript {
 
   async fetch(context) {
     this.log('info', '🤖 fetch starts')
+    const clientRefs = this.store.userIdentity.clientRefs
+    // remove clientRefs from identity before saving to not mess with MesPapiers app
+    delete this.store.userIdentity.clientRefs
+
     await this.saveIdentity(this.store.userIdentity)
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
@@ -388,29 +392,65 @@ class TemplateContentScript extends ContentScript {
       if (billsDone) {
         // Some retrieved files may not have an amount associated (some schedules for example)
         // so wee need to sort those out before saving to avoid errors in saveBills
-        const bills = []
-        const files = []
+        const gazBills = []
+        const electricBills = []
+        const gazFiles = []
+        const electricFiles = []
         for (const oneDoc of this.store.allDocuments) {
           if (oneDoc.amount) {
-            bills.push(oneDoc)
+            if (oneDoc.documentType === 'Gaz') {
+              gazBills.push(oneDoc)
+            } else {
+              electricBills.push(oneDoc)
+            }
           } else {
-            files.push(oneDoc)
+            if (oneDoc.documentType === 'Gaz') {
+              gazFiles.push(oneDoc)
+            } else {
+              electricFiles.push(oneDoc)
+            }
           }
         }
-        await this.saveBills(bills, {
-          context,
-          fileIdAttributes: ['vendorRef', 'filename'],
-          contentType: 'application/pdf',
-          qualificationLabel: 'energy_invoice',
-          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-        })
-        await this.saveFiles(files, {
-          context,
-          fileIdAttributes: ['vendorRef', 'filename'],
-          contentType: 'application/pdf',
-          qualificationLabel: 'energy_invoice',
-          subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
-        })
+        if (electricBills.length) {
+          this.log('info', 'Saving electric bills ...')
+          await this.saveBills(electricBills, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice',
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}/Électricité`
+          })
+        }
+        if (gazBills.length) {
+          this.log('info', 'Saving gaz bills ...')
+          await this.saveBills(gazBills, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice',
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}/Gaz`
+          })
+        }
+        if (electricFiles.length) {
+          this.log('info', 'Saving electric files ...')
+          await this.saveFiles(electricFiles, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice',
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}/Électricité`
+          })
+        }
+        if (gazFiles.length) {
+          this.log('info', 'Saving gaz files ...')
+          await this.saveFiles(gazFiles, {
+            context,
+            fileIdAttributes: ['vendorRef', 'filename'],
+            contentType: 'application/pdf',
+            qualificationLabel: 'energy_invoice',
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}/Gaz`
+          })
+        }
         // If i > 0 it means we're in older contracts, and for them there is no contract's pdf to download
         // So we avoid the contract page
         if (i === 0) {
@@ -420,7 +460,7 @@ class TemplateContentScript extends ContentScript {
             fileIdAttributes: ['filename'],
             contentType: 'application/pdf',
             qualificationLabel: 'energy_contract',
-            subPath: `${this.store.userIdentity.clientRefs[i].contractNumber} - ${this.store.userIdentity.clientRefs[i].linkedAddress}`
+            subPath: `${clientRefs[i].contractNumber} - ${clientRefs[i].linkedAddress}`
           })
         }
       }
@@ -464,7 +504,7 @@ class TemplateContentScript extends ContentScript {
     this.log('info', 'fetchContracts starts')
     await this.clickAndWait(
       'a[href="/clients/mon-compte/mon-contrat"]',
-      '.cadre2'
+      '[data-cs-override-id="offreDescription"]'
     )
     await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
     await this.runInWorker('getContract')
@@ -687,16 +727,18 @@ class TemplateContentScript extends ContentScript {
 
   async getIdentity() {
     this.log('info', 'getIdentity starts')
-    const infosElements = document.querySelectorAll('.arrondi-04')
-    const familyName = infosElements[0].children[0].textContent.split(':')[1]
-    const name = infosElements[0].children[1].textContent.split(':')[1]
-    const clientRef = infosElements[0].children[2].textContent.split(':')[1]
-    const phoneNumber = infosElements[1].children[0].textContent.split(':')[1]
-    const email = infosElements[1].children[1].textContent.split(':')[1].trim()
-    const rawAddress = infosElements[2].children[0].textContent.replace(
-      / {2}/g,
-      ' '
+    const infosElements = document.querySelectorAll(
+      '.arrondi-04 > div > p > span'
     )
+    const addressElement = document.querySelector(
+      '.arrondi-04 > div > .font-700'
+    )
+    const familyName = infosElements[0].textContent
+    const name = infosElements[1].textContent
+    const clientRef = infosElements[2].textContent
+    const phoneNumber = infosElements[3].textContent
+    const email = infosElements[4].textContent
+    const rawAddress = addressElement.textContent.replace(/ {2}/g, ' ')
     let splittedAddress
     if (rawAddress.includes('<Br/>')) {
       let cleanedAddress
@@ -743,9 +785,21 @@ class TemplateContentScript extends ContentScript {
 
   async getBills() {
     this.log('info', 'getBills starts')
-    const invoices = await this.getInvoices()
+    const electricInvoices = await this.getElectricInvoices()
+    let separationIndex
+    if (electricInvoices.length) {
+      separationIndex = electricInvoices.length - 1
+    } else {
+      separationIndex = null
+    }
+    const gazInvoices = await this.getGazInvoices()
+    const invoices = electricInvoices.concat(gazInvoices)
     const schedules = await this.getSchedules()
-    const allDocuments = await this.computeInformations(invoices, schedules)
+    const allDocuments = await this.computeInformations(
+      invoices,
+      separationIndex,
+      schedules
+    )
     await this.sendToPilot({ allDocuments })
     return true
   }
@@ -753,7 +807,10 @@ class TemplateContentScript extends ContentScript {
   async getContract() {
     this.log('info', 'getContract starts')
     const contractElement = document.querySelector('.arrondi-04')
-    const offerName = contractElement.querySelector('h2').innerHTML
+    const offerName = contractElement
+      .querySelector('[data-cs-override-id="offreDescription"] > p')
+      .innerHTML.replace(/  {2}|\n/g, '')
+      .trim()
     const rawStartDate = contractElement.querySelector(
       'p[class="font-700"]'
     ).innerHTML
@@ -791,10 +848,33 @@ class TemplateContentScript extends ContentScript {
     await this.sendToPilot({ contract })
   }
 
-  getInvoices() {
-    this.log('info', 'getInvoices starts')
-    const invoices = document.querySelectorAll('div[class="detail-facture"]')
-    return invoices
+  getElectricInvoices() {
+    this.log('info', 'getElectricInvoices starts')
+    if (document.querySelector('#js--historique-container-elec')) {
+      const invoices = Array.from(
+        document
+          .querySelector('#js--historique-container-elec')
+          .querySelectorAll('div[class="detail-facture"]')
+      )
+      return invoices
+    } else {
+      this.log('info', 'No electricity bills found for this contract')
+      return []
+    }
+  }
+  getGazInvoices() {
+    this.log('info', 'getGazInvoices starts')
+    if (document.querySelector('#js--historique-container-gaz')) {
+      const invoices = Array.from(
+        document
+          .querySelector('#js--historique-container-gaz')
+          .querySelectorAll('div[class="detail-facture"]')
+      )
+      return invoices
+    } else {
+      this.log('info', 'No gaz bills found for this contract')
+      return []
+    }
   }
 
   getSchedules() {
@@ -815,7 +895,7 @@ class TemplateContentScript extends ContentScript {
     return schedules
   }
 
-  computeInformations(invoices, schedules) {
+  computeInformations(invoices, separationIndex, schedules) {
     this.log('info', 'computeInformations starts')
     let computedInvoices = []
     for (let i = 0; i < invoices.length; i++) {
@@ -832,7 +912,9 @@ class TemplateContentScript extends ContentScript {
       const href = invoices[i].children[4].getAttribute('href')
       const fileurl = `https://www.totalenergies.fr${href}`
       const date = new Date(`${month}/${day}/${year}`)
+      const documentType = i > separationIndex ? 'Gaz' : 'Electricité'
       let invoice = {
+        documentType,
         docTitle,
         vendorRef,
         date,
@@ -898,7 +980,7 @@ class TemplateContentScript extends ContentScript {
         )}_${amount}${currency}.pdf`
       } else {
         this.log('info', 'No couple amount/currency for this bill')
-        invoice.filename = `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+        invoice.filename = `${year}-${month}-${day}_TotalEnergies_${documentType}_${docTitle.replace(
           / /g,
           '-'
         )}.pdf`
@@ -930,9 +1012,11 @@ class TemplateContentScript extends ContentScript {
       const fileurl = `https://www.totalenergies.fr${href}`
       const amount = parseFloat(rawAmount[0].replace(',', '.'))
       const date = new Date(`${month}/${day}/${year}`)
+      const documentType = j > separationIndex ? 'Gaz' : 'Electricité'
       let schedule = {
+        documentType,
         docTitle,
-        filename: `${year}-${month}-${day}_TotalEnergies_${docTitle.replace(
+        filename: `${year}-${month}-${day}_TotalEnergies_${documentType}_${docTitle.replace(
           / /g,
           '-'
         )}_${amount}${currency}.pdf`,
@@ -986,7 +1070,12 @@ class TemplateContentScript extends ContentScript {
       return 'Ended'
     } else if (rawPaymentStatus.match('Remboursée')) {
       return 'Refunded'
-    } else if (rawPaymentStatus === '') {
+    } else if (rawPaymentStatus.match('En cours')) {
+      return 'Pending'
+    } else if (
+      rawPaymentStatus === '' ||
+      rawPaymentStatus === '\n        \n    '
+    ) {
       this.log('debug', 'No status for this file')
       return 'No status'
     } else {
