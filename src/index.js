@@ -244,6 +244,7 @@ class TemplateContentScript extends ContentScript {
 
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite starts')
+    let uniqContract = false
     await Promise.race([
       this.waitForElementInWorker('.cadre2'),
       this.waitForErrors()
@@ -251,27 +252,14 @@ class TemplateContentScript extends ContentScript {
     if (this.store.foundError) {
       await this.handleError()
     }
-    const isContractSelectionPage = await this.evaluateInWorker(
+    let isContractSelectionPage = await this.evaluateInWorker(
       function checkContractSelectionPage() {
         if (document.location.href.includes('/clients/selection-compte'))
           return true
         else return false
       }
     )
-    if (isContractSelectionPage) {
-      this.log('info', 'Landed on the contracts selection page after login')
-      const foundContractsNumber = await this.getNumberOfContracts()
-      this.log('info', `Found ${foundContractsNumber} contracts`)
-      numberOfContracts = foundContractsNumber
-      await this.runInWorker('selectContract', 0)
-      await Promise.race([
-        this.waitForElementInWorker('.cadre2'),
-        this.waitForErrors()
-      ])
-      if (this.store.foundError) {
-        await this.handleError()
-      }
-    } else {
+    if (!isContractSelectionPage) {
       this.log('info', 'Landed on the home page after login')
       const changeAccountLink = await this.isElementInWorker(
         'a[href="/clients/mon-compte/gerer-mes-comptes"]'
@@ -282,53 +270,60 @@ class TemplateContentScript extends ContentScript {
           'a[href="/clients/mon-compte/gerer-mes-comptes"]',
           '.cadre2'
         )
-        const foundContractsNumber = await this.getNumberOfContracts()
-        this.log('info', `Found ${foundContractsNumber} contracts`)
-        numberOfContracts = foundContractsNumber
-        await this.runInWorker('selectContract', 0)
-        await Promise.race([
-          this.waitForElementInWorker('.cadre2'),
-          this.waitForErrors()
-        ])
-        if (this.store.foundError) {
-          await this.handleError()
-        }
-      }
-    }
-    await pRetry(this.navigateToContactInformation.bind(this), {
-      retries: 5,
-      onFailedAttempt: error => {
-        this.log(
-          'info',
-          `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
-        )
-      }
-    })
-    await this.runInWorker('getIdentity')
-    if (numberOfContracts > 1) {
-      this.log('info', 'Found more than 1 contract, fetching addresses')
-      await this.goto(contractSelectionPage)
-      await this.waitForElementInWorker('a[href*="?tx_demmcompte"]')
-      await this.runInWorkerUntilTrue({ method: 'checkAddressesElement' })
-      const addresses = await this.runInWorker('getOtherContractsAddresses')
-      const clientRefs = await this.runInWorker('getOtherContractsReferences')
-      let i = 0
-      if (!addresses.length) {
-        this.log('warn', 'No addresses found for other contracts')
+        isContractSelectionPage = true
       } else {
-        for (const address of addresses) {
-          this.store.userIdentity.address.push(address)
-          this.store.userIdentity.clientRefs.push({
-            linkedAddress: address.formattedAddress,
-            contractNumber: clientRefs[i]
-          })
-          i++
-        }
+        this.log('info', 'Only found 1 contract')
+        uniqContract = true
       }
-      await this.navigateToPersonnalInfos()
+    } else {
+      this.log('info', 'Landed on the contracts selection page after login')
     }
-    if (this.store.userIdentity) {
-      return { sourceAccountIdentifier: this.store.userIdentity.email }
+    if (!uniqContract) {
+      const foundContractsNumber = await this.getNumberOfContracts()
+      this.log('info', `Found ${foundContractsNumber} contracts`)
+      numberOfContracts = foundContractsNumber
+    }
+    await this.runInWorker('getContractsInfos', numberOfContracts)
+    if (isContractSelectionPage) {
+      await this.runInWorker('selectContract', 0)
+      await Promise.race([
+        this.waitForElementInWorker('.cadre2'),
+        this.waitForErrors()
+      ])
+      if (this.store.foundError) {
+        await this.handleError()
+      }
+    }
+    if (
+      await this.isElementInWorker(
+        'a[href="/clients/mon-compte/mes-infos-de-contact"]'
+      )
+    ) {
+      await pRetry(this.navigateToContactInformation.bind(this), {
+        retries: 5,
+        onFailedAttempt: error => {
+          this.log(
+            'info',
+            `Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`
+          )
+        }
+      })
+    } else {
+      this.log(
+        'warn',
+        'Identty could not be fetched, impossible to reach userInfos page, will use user login as sourceAccountIdentifier'
+      )
+    }
+    const savedCredentials = await this.getCredentials()
+    const userLogin = savedCredentials
+      ? savedCredentials.login
+      : this.store.userCredentials.login
+    if (this.store.userIdentity || userLogin) {
+      return {
+        sourceAccountIdentifier: this.store.userIdentity
+          ? this.store.userIdentity.email
+          : userLogin
+      }
     } else {
       throw new Error(
         'No sourceAccountIdentifier, the konnector should be fixed'
@@ -379,11 +374,10 @@ class TemplateContentScript extends ContentScript {
 
   async fetch(context) {
     this.log('info', '🤖 fetch starts')
-    const clientRefs = this.store.userIdentity.clientRefs
-    // remove clientRefs from identity before saving to not mess with MesPapiers app
-    delete this.store.userIdentity.clientRefs
-
-    await this.saveIdentity(this.store.userIdentity)
+    const clientRefs = this.store.clientRefs
+    if (this.store.userIdentity) {
+      await this.saveIdentity(this.store.userIdentity)
+    }
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
@@ -571,42 +565,6 @@ class TemplateContentScript extends ContentScript {
     await this.runInWorker('click', '#js--btn-validation')
   }
 
-  async navigateToPersonnalInfos() {
-    this.log('info', 'navigateToPersonnalInfos starts')
-    await this.runInWorker('selectContract', 0)
-    await Promise.race([
-      Promise.all([
-        this.waitForElementInWorker(
-          'a[href*="/clients/connexion?logintype=logout"]'
-        ),
-        this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        ),
-        this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-        )
-      ]),
-      this.waitForErrors()
-    ])
-    if (this.store.foundError) {
-      await this.handleError()
-    }
-    await this.runInWorker(
-      'click',
-      'a[href="/clients/mon-compte/mes-infos-de-contact"]'
-    )
-    await Promise.race([
-      this.waitForElementInWorker(
-        'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-      ),
-      this.waitForErrors()
-    ])
-    if (this.store.foundError) {
-      await this.handleError()
-    }
-    await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
-  }
-
   // ////////
   // WORKER//
   // ////////
@@ -725,6 +683,49 @@ class TemplateContentScript extends ContentScript {
     passwordField.value = credentials.password
   }
 
+  async getContractsInfos(numberOfContracts) {
+    this.log('info', '📍️ getContractsInfos starts')
+    const clientRefs = []
+    // If there is just one contract, we assume we cannot reach the chooseContract page
+    // So we're scraping the contract info on homePage
+    if (numberOfContracts === 1) {
+      const contractInfosElement =
+        document.querySelector('h1').nextElementSibling
+      const foundAddress = contractInfosElement
+        .querySelector('div > div > p')
+        .textContent.replace(/\n/g, '')
+        .replace(',', '')
+        .trim()
+      const foundContractRef = contractInfosElement.querySelector(
+        'div > div > div > span'
+      ).textContent
+      clientRefs.push({
+        linkedAddress: foundAddress,
+        contractNumber: foundContractRef
+      })
+    } else {
+      await this.checkAddressesElement()
+      const addresses = await this.getContractsAddresses()
+      const contractRefs = await this.getContractsReferences()
+      let i = 0
+      if (!addresses.length) {
+        this.log('warn', 'No addresses found for all contracts')
+      } else {
+        for (const address of addresses) {
+          if (this.store.userIdentity) {
+            this.store.userIdentity.address.push(address)
+          }
+          clientRefs.push({
+            linkedAddress: address.formattedAddress,
+            contractNumber: contractRefs[i]
+          })
+          i++
+        }
+      }
+    }
+    await this.sendToPilot({ clientRefs })
+  }
+
   async getIdentity() {
     this.log('info', 'getIdentity starts')
     const infosElements = document.querySelectorAll(
@@ -735,7 +736,6 @@ class TemplateContentScript extends ContentScript {
     )
     const familyName = infosElements[0].textContent
     const name = infosElements[1].textContent
-    const clientRef = infosElements[2].textContent
     const phoneNumber = infosElements[3].textContent
     const email = infosElements[4].textContent
     const rawAddress = addressElement.textContent.replace(/ {2}/g, ' ')
@@ -755,12 +755,6 @@ class TemplateContentScript extends ContentScript {
 
     const userIdentity = {
       email,
-      clientRefs: [
-        {
-          linkedAddress: fullAddress,
-          contractNumber: clientRef
-        }
-      ],
       name: {
         givenName: name,
         familyName
@@ -1180,26 +1174,27 @@ class TemplateContentScript extends ContentScript {
     return true
   }
 
-  getOtherContractsAddresses() {
-    this.log('info', 'getOtherContractsAddresses starts')
+  getContractsAddresses() {
+    this.log('info', 'getContractsAddresses starts')
     let addresses = []
     const elements = document.querySelectorAll('.cadre2')
-    // i = 1 because we dont need the first addresse, we already get it
-    for (let i = 1; i < elements.length; i++) {
+    for (let i = 0; i < elements.length; i++) {
       const foundAddress = elements[i]
         .querySelector('div[class="mt-dm largeur-auto"]')
         .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
         .replace(/\n/g, '')
         .trim()
       if (!foundAddress) {
-        this.log('warn', `No addresse found for ${i} contract`)
+        this.log('warn', `No addresse found for contract number : ${i + 1} `)
         continue
       }
       const postCode = foundAddress.match(/\d{5}/g)[0]
       if (!postCode) {
         this.log(
           'warn',
-          `Addresse was found but no postCode match, abort addresse fetching for ${i} contract`
+          `Addresse was found but no postCode match, abort addresse fetching for contract number : ${
+            i + 1
+          }`
         )
         continue
       } else {
@@ -1219,12 +1214,11 @@ class TemplateContentScript extends ContentScript {
     return addresses
   }
 
-  getOtherContractsReferences() {
-    this.log('info', 'getOtherContractsReferences starts')
+  getContractsReferences() {
+    this.log('info', 'getContractsReferences starts')
     let clientRefs = []
     const elements = document.querySelectorAll('.cadre2')
-    // i = 1 because we dont need the first addresse, we already get it
-    for (let i = 1; i < elements.length; i++) {
+    for (let i = 0; i < elements.length; i++) {
       const foundRef = elements[i].querySelector(
         'div[class*="js--partenaire-id-"]'
       ).textContent
@@ -1255,14 +1249,15 @@ connector
       'getBills',
       'fillingForm',
       'checkIfLogged',
+      'getContractsInfos',
       'getIdentity',
       'getContract',
       'checkInfosPageTitle',
       'checkContractPageTitle',
       'checkIfAskingCaptcha',
       'checkAddressesElement',
-      'getOtherContractsAddresses',
-      'getOtherContractsReferences',
+      'getContractsAddresses',
+      'getContractsReferences',
       'selectContract',
       'removeElement'
     ]
