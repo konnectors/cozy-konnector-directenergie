@@ -257,10 +257,9 @@ class TemplateContentScript extends ContentScript {
         'a[href="/clients/mon-compte/gerer-mes-comptes"]'
       )
       if (changeAccountLink) {
-        await this.runInWorker('removeElement', '.cadre2')
         await this.clickAndWait(
           'a[href="/clients/mon-compte/gerer-mes-comptes"]',
-          '.cadre2'
+          '#js--listjs-comptes-actifs'
         )
         isContractSelectionPage = true
       } else {
@@ -353,15 +352,40 @@ class TemplateContentScript extends ContentScript {
 
   async getNumberOfContracts() {
     this.log('info', 'getNumberOfContracts starts')
-    await this.waitForElementInWorker('.cadre2')
+    await Promise.race([
+      this.waitForElementInWorker('#js--listjs-comptes-actifs'),
+      this.waitForElementInWorker('#js--listjs-comptes-resilies')
+    ])
     const numberOfContracts = await this.evaluateInWorker(
       function getContractsLength() {
-        const contractElements = document.querySelectorAll('.cadre2')
-        const foundContractsLength = contractElements.length
-        return foundContractsLength
+        const activeContractsElement = document.querySelector(
+          '#js--listjs-comptes-actifs'
+        )
+        const terminatedContractsElement = document.querySelector(
+          '#js--listjs-comptes-resilies'
+        )
+        let activeLength = 0
+        let terminatedLength = 0
+        // Not knowing if all contract elements are also present in html when the user have none
+        // we need to check before trying to get it's length
+        if (activeContractsElement) {
+          activeLength =
+            activeContractsElement.querySelectorAll('ul > li').length
+        }
+        if (terminatedContractsElement) {
+          terminatedLength =
+            terminatedContractsElement.querySelectorAll('ul > li').length
+        }
+        const foundContractsLength = activeLength + terminatedLength
+        return { foundContractsLength, activeLength, terminatedLength }
       }
     )
-    return numberOfContracts
+    this.log('info', `Found ${numberOfContracts.activeLength} active contracts`)
+    this.log(
+      'info',
+      `Found ${numberOfContracts.terminatedLength} terminated contracts`
+    )
+    return numberOfContracts.foundContractsLength
   }
 
   async fetch(context) {
