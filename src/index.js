@@ -197,24 +197,16 @@ class TemplateContentScript extends ContentScript {
   async ensureAuthenticated({ account }) {
     this.log('info', '🤖 ensureAuthenticated starts')
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-    if (!account) {
-      await this.ensureNotAuthenticated()
-    }
-    await this.navigateToLoginForm()
     const credentials = await this.getCredentials()
-    if (credentials) {
+    if (!account || !credentials) {
+      await this.ensureNotAuthenticated()
+      await this.waitForUserAuthentication()
+    } else {
+      await this.navigateToLoginForm()
       const auth = await this.authWithCredentials(credentials)
       if (auth) {
         return true
       }
-      return false
-    }
-    if (!credentials) {
-      const auth = await this.authWithoutCredentials()
-      if (auth) {
-        return true
-      }
-      return false
     }
   }
 
