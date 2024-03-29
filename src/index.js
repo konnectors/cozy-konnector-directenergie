@@ -108,9 +108,7 @@ class TemplateContentScript extends ContentScript {
     )
     await Promise.race([
       this.waitForErrors(),
-      this.waitForElementInWorker(
-        'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-      )
+      this.waitForElementInWorker('main > div > h1')
     ])
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
@@ -270,7 +268,7 @@ class TemplateContentScript extends ContentScript {
       if (changeAccountLink) {
         await this.clickAndWait(
           'a[href="/clients/mon-compte/gerer-mes-comptes"]',
-          '#js--listjs-comptes-actifs'
+          '[id*="js--listjs-comptes-"]'
         )
         isContractSelectionPage = true
       } else {
@@ -364,9 +362,6 @@ class TemplateContentScript extends ContentScript {
     if (elementToClick) {
       this.log('info', 'selectContract - elementToClick found')
       elementToClick.click()
-      for (const element of allContractsElements) {
-        element.remove()
-      }
     } else {
       this.log(
         'info',
@@ -381,10 +376,7 @@ class TemplateContentScript extends ContentScript {
 
   async getNumberOfContracts() {
     this.log('info', 'getNumberOfContracts starts')
-    await Promise.race([
-      this.waitForElementInWorker('#js--listjs-comptes-actifs'),
-      this.waitForElementInWorker('#js--listjs-comptes-resilies')
-    ])
+    await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
     const numberOfContracts = await this.evaluateInWorker(
       function getContractsLength() {
         const activeContractsElement = document.querySelector(
@@ -510,7 +502,8 @@ class TemplateContentScript extends ContentScript {
         )
         await this.runInWorker('removeElement', '.cadre2')
         await this.goto(contractSelectionPage)
-        await this.waitForElementInWorker('.cadre2')
+        // not knowing if we're gonna find active, terminated or both, we'll wait for incomplete id
+        await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
         await this.runInWorker('selectContract', i + 1)
         await Promise.race([
           this.waitForElementInWorker(
@@ -1125,10 +1118,8 @@ class TemplateContentScript extends ContentScript {
     this.log('info', 'checkInfosPageTitle starts')
     await waitFor(
       () => {
-        const pageTitle = document.querySelector(
-          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-        )?.textContent
-        if (pageTitle === ' Mes infos de contact ') {
+        const pageTitle = document.querySelector('main > div > h1')?.textContent
+        if (pageTitle === 'Mes infos de contact') {
           return true
         } else {
           return false
@@ -1151,10 +1142,8 @@ class TemplateContentScript extends ContentScript {
     this.log('info', 'checkContractPageTitle')
     await waitFor(
       () => {
-        const pageTitle = document.querySelector(
-          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-        ).textContent
-        if (pageTitle === ' Mon contrat ') {
+        const pageTitle = document.querySelector('main > div > h1').textContent
+        if (pageTitle === 'Mon contrat') {
           return true
         }
         return false
