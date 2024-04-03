@@ -6139,6 +6139,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       "404 - Oups ! Cette page n'existe pas."
     )
     const isErrorProxy = currentBody?.innerHTML.match('Proxy Error')
+    const isError500 = currentBody?.innerHTML.match(
+      'Error 500 - Internal Server Error'
+    )
     if (isError503) {
       this.log('info', 'Found error 503')
       const event = 'errorDetected'
@@ -6165,6 +6168,14 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         event,
         payload
       })
+    } else if (isError500) {
+      this.log('info', 'Found error 500')
+      const event = 'errorDetected'
+      const payload = '500'
+      this.bridge.emit('workerEvent', {
+        event,
+        payload
+      })
     } else {
       this.log('info', 'None of the listed error found for this page')
     }
@@ -6184,9 +6195,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     )
     await Promise.race([
       this.waitForErrors(),
-      this.waitForElementInWorker(
-        'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-      )
+      this.waitForElementInWorker('main > div > h1')
     ])
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
@@ -6284,24 +6293,16 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   async ensureAuthenticated({ account }) {
     this.log('info', '🤖 ensureAuthenticated starts')
     this.bridge.addEventListener('workerEvent', this.onWorkerEvent.bind(this))
-    if (!account) {
-      await this.ensureNotAuthenticated()
-    }
-    await this.navigateToLoginForm()
     const credentials = await this.getCredentials()
-    if (credentials) {
+    if (!account || !credentials) {
+      await this.ensureNotAuthenticated()
+      await this.waitForUserAuthentication()
+    } else {
+      await this.navigateToLoginForm()
       const auth = await this.authWithCredentials(credentials)
       if (auth) {
         return true
       }
-      return false
-    }
-    if (!credentials) {
-      const auth = await this.authWithoutCredentials()
-      if (auth) {
-        return true
-      }
-      return false
     }
   }
 
@@ -6352,10 +6353,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         'a[href="/clients/mon-compte/gerer-mes-comptes"]'
       )
       if (changeAccountLink) {
-        await this.runInWorker('removeElement', '.cadre2')
         await this.clickAndWait(
           'a[href="/clients/mon-compte/gerer-mes-comptes"]',
-          '.cadre2'
+          '[id*="js--listjs-comptes-"]'
         )
         isContractSelectionPage = true
       } else {
@@ -6421,8 +6421,26 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   async selectContract(number) {
     this.log('info', '🤖 selectContract starts')
     this.log('info', `selectContract - number is ${number}`)
-    const contractElements = document.querySelectorAll('.cadre2')
-    const elementToClick = contractElements[number].querySelector(
+    const activeContractsElement = document.querySelector(
+      '#js--listjs-comptes-actifs'
+    )
+    const terminatedContractsElement = document.querySelector(
+      '#js--listjs-comptes-resilies'
+    )
+    const allContractsElements = []
+    if (activeContractsElement) {
+      activeContractsElement.querySelectorAll('ul > li').forEach(element => {
+        allContractsElements.push(element)
+      })
+    }
+    if (terminatedContractsElement) {
+      terminatedContractsElement
+        .querySelectorAll('ul > li')
+        .forEach(element => {
+          allContractsElements.push(element)
+        })
+    }
+    const elementToClick = allContractsElements[number].querySelector(
       'a[href*="?tx_demmcompte"]'
     )
     // Depending on where you come from, the page will have different selectors for the same button
@@ -6431,15 +6449,12 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (elementToClick) {
       this.log('info', 'selectContract - elementToClick found')
       elementToClick.click()
-      for (const element of contractElements) {
-        element.remove()
-      }
     } else {
       this.log(
         'info',
         'selectContract - elementToClick not found, changing href'
       )
-      for (const element of contractElements) {
+      for (const element of allContractsElements) {
         element.remove()
       }
       document.location.href = 'https://www.totalenergies.fr/clients/accueil'
@@ -6448,15 +6463,37 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async getNumberOfContracts() {
     this.log('info', 'getNumberOfContracts starts')
-    await this.waitForElementInWorker('.cadre2')
+    await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
     const numberOfContracts = await this.evaluateInWorker(
       function getContractsLength() {
-        const contractElements = document.querySelectorAll('.cadre2')
-        const foundContractsLength = contractElements.length
-        return foundContractsLength
+        const activeContractsElement = document.querySelector(
+          '#js--listjs-comptes-actifs'
+        )
+        const terminatedContractsElement = document.querySelector(
+          '#js--listjs-comptes-resilies'
+        )
+        let activeLength = 0
+        let terminatedLength = 0
+        // Not knowing if all contract elements are also present in html when the user have none
+        // we need to check before trying to get it's length
+        if (activeContractsElement) {
+          activeLength =
+            activeContractsElement.querySelectorAll('ul > li').length
+        }
+        if (terminatedContractsElement) {
+          terminatedLength =
+            terminatedContractsElement.querySelectorAll('ul > li').length
+        }
+        const foundContractsLength = activeLength + terminatedLength
+        return { foundContractsLength, activeLength, terminatedLength }
       }
     )
-    return numberOfContracts
+    this.log('info', `Found ${numberOfContracts.activeLength} active contracts`)
+    this.log(
+      'info',
+      `Found ${numberOfContracts.terminatedLength} terminated contracts`
+    )
+    return numberOfContracts.foundContractsLength
   }
 
   async fetch(context) {
@@ -6552,7 +6589,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         )
         await this.runInWorker('removeElement', '.cadre2')
         await this.goto(contractSelectionPage)
-        await this.waitForElementInWorker('.cadre2')
+        // not knowing if we're gonna find active, terminated or both, we'll wait for incomplete id
+        await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
         await this.runInWorker('selectContract', i + 1)
         await Promise.race([
           this.waitForElementInWorker(
@@ -6791,9 +6829,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         contractNumber: foundContractRef
       })
     } else {
-      await this.checkAddressesElement()
-      const addresses = await this.getContractsAddresses()
-      const contractRefs = await this.getContractsReferences()
+      const { addresses, contractRefs } = await this.waitAndGetContractsInfos()
       let i = 0
       if (!addresses.length) {
         this.log('warn', 'No addresses found for all contracts')
@@ -7169,10 +7205,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     this.log('info', 'checkInfosPageTitle starts')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
       () => {
-        const pageTitle = document.querySelector(
-          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-        )?.textContent
-        if (pageTitle === ' Mes infos de contact ') {
+        const pageTitle = document.querySelector('main > div > h1')?.textContent
+        if (pageTitle === 'Mes infos de contact') {
           return true
         } else {
           return false
@@ -7195,10 +7229,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     this.log('info', 'checkContractPageTitle')
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
       () => {
-        const pageTitle = document.querySelector(
-          'h1[class="text-headline-xl d-block mt-std--medium-down"]'
-        ).textContent
-        if (pageTitle === ' Mon contrat ') {
+        const pageTitle = document.querySelector('main > div > h1').textContent
+        if (pageTitle === 'Mon contrat') {
           return true
         }
         return false
@@ -7227,28 +7259,61 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     return false
   }
 
-  async checkAddressesElement() {
-    this.log('info', '📍️ checkAddressesElement starts')
+  async waitAndGetContractsInfos() {
+    this.log('info', '📍️ waitAndGetContractsInfos starts')
+    const foundAddresses = []
+    const foundContractRefs = []
     await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
-      () => {
-        const elements = document.querySelectorAll('.cadre2')
-        const readyElements = []
-        for (const element of elements) {
-          const foundAddress = element
-            .querySelector('div[class="mt-dm largeur-auto"]')
+      async () => {
+        const activeContractsElement = document.querySelector(
+          '#js--listjs-comptes-actifs'
+        )
+        const terminatedContractsElement = document.querySelector(
+          '#js--listjs-comptes-resilies'
+        )
+        const allContractsElements = []
+        if (activeContractsElement) {
+          activeContractsElement
+            .querySelectorAll('ul > li')
+            .forEach(element => {
+              allContractsElements.push(element)
+            })
+        }
+        if (terminatedContractsElement) {
+          terminatedContractsElement
+            .querySelectorAll('ul > li')
+            .forEach(element => {
+              allContractsElements.push(element)
+            })
+        }
+        for (const contractElement of allContractsElements) {
+          const foundAddress = contractElement
+            .querySelector('.js--listjs__item-adresse')
             .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
             .replace(/\n/g, '')
-          const [, postCodeAndCity] = foundAddress.split(', ')
-          if (postCodeAndCity === undefined) {
-            this.log('debug', 'postCodeAndCity is undefined')
-            continue
+            .trim()
+          const foundClientRef = contractElement.querySelector(
+            '.js--listjs__item-refclient'
+          ).textContent
+          // Needs to be check, sometimes it has not been fully loaded on first lap
+          const postCodeAndCity = foundAddress.match(
+            /\b\d{5}\b\s(?:[a-zA-Z-']+\s?)+/g
+          )
+          if (postCodeAndCity && foundClientRef) {
+            this.log('debug', 'Element ready')
+            foundAddresses.push(foundAddress)
+            foundContractRefs.push(foundClientRef)
           } else {
-            this.log('debug', 'element ready')
-            readyElements.push(element)
+            this.log('debug', 'Element not ready')
+            continue
           }
         }
-        if (readyElements.length === elements.length) {
-          this.log('debug', 'same length for both arrays')
+
+        if (
+          foundAddresses.length === allContractsElements.length &&
+          foundContractRefs.length === allContractsElements.length
+        ) {
+          this.log('debug', 'Infos for all contracts found, continue')
           return true
         }
         return false
@@ -7258,62 +7323,27 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         timeout: 30 * 1000
       }
     )
-    return true
+    const addresses = this.getContractsAddresses(foundAddresses)
+    return { addresses, contractRefs: foundContractRefs }
   }
 
-  getContractsAddresses() {
+  getContractsAddresses(elements) {
     this.log('info', 'getContractsAddresses starts')
     let addresses = []
-    const elements = document.querySelectorAll('.cadre2')
     for (let i = 0; i < elements.length; i++) {
-      const foundAddress = elements[i]
-        .querySelector('div[class="mt-dm largeur-auto"]')
-        .textContent.replace(/(?<=\s)\s+(?=\s)/g, '')
-        .replace(/\n/g, '')
-        .trim()
-      if (!foundAddress) {
-        this.log('warn', `No addresse found for contract number : ${i + 1} `)
-        continue
-      }
-      const postCode = foundAddress.match(/\d{5}/g)[0]
-      if (!postCode) {
-        this.log(
-          'warn',
-          `Addresse was found but no postCode match, abort addresse fetching for contract number : ${
-            i + 1
-          }`
-        )
-        continue
-      } else {
-        const matchedAddress = foundAddress.match(
-          /([\s\S]+?)\s*,?\s*(\d{5})\s+([\s\S]+)/
-        )
-        const [, street, postCode, city] = matchedAddress
-        const formattedAddress = `${street} ${postCode} ${city}`.trim()
-        addresses.push({
-          street,
-          postCode,
-          city,
-          formattedAddress
-        })
-      }
+      const matchedAddress = elements[i].match(
+        /([\s\S]+?)\s*,?\s*(\d{5})\s+([\s\S]+)/
+      )
+      const [, street, postCode, city] = matchedAddress
+      const formattedAddress = `${street} ${postCode} ${city}`.trim()
+      addresses.push({
+        street,
+        postCode,
+        city,
+        formattedAddress
+      })
     }
     return addresses
-  }
-
-  getContractsReferences() {
-    this.log('info', 'getContractsReferences starts')
-    let clientRefs = []
-    const elements = document.querySelectorAll('.cadre2')
-    for (let i = 0; i < elements.length; i++) {
-      const foundRef = elements[i].querySelector(
-        'div[class*="js--partenaire-id-"]'
-      ).textContent
-      const foundClientRef = foundRef.split(' -')[0]
-      const clientRef = foundClientRef.trim()
-      clientRefs.push(clientRef)
-    }
-    return clientRefs
   }
 
   removeElement(element) {
@@ -7342,9 +7372,8 @@ connector
       'checkInfosPageTitle',
       'checkContractPageTitle',
       'checkIfAskingCaptcha',
-      'checkAddressesElement',
+      'waitAndGetContractsInfos',
       'getContractsAddresses',
-      'getContractsReferences',
       'selectContract',
       'removeElement'
     ]
