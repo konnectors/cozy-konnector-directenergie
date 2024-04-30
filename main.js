@@ -6349,12 +6349,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     )
     if (!isContractSelectionPage) {
       this.log('info', 'Landed on the home page after login')
-      const changeAccountLink = await this.isElementInWorker(
-        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      // Carefull here, there are at least 4 links with this href on the account used to dev
+      // The id here is to ensure we're checking for the one actually interesting to us at this moment
+      const changeContractLink = await this.isElementInWorker(
+        '#contenu a[href="/clients/mon-compte/gerer-mes-comptes"]'
       )
-      if (changeAccountLink) {
+      if (changeContractLink) {
+        this.log('info', 'Found changeContract link')
         await this.clickAndWait(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]',
+          '#contenu a[href="/clients/mon-compte/gerer-mes-comptes"]',
           '[id*="js--listjs-comptes-"]'
         )
         isContractSelectionPage = true
@@ -6366,6 +6369,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       this.log('info', 'Landed on the contracts selection page after login')
     }
     if (!uniqContract) {
+      this.log('info', 'Is not uniqContract')
       const foundContractsNumber = await this.getNumberOfContracts()
       this.log('info', `Found ${foundContractsNumber} contracts`)
       numberOfContracts = foundContractsNumber
