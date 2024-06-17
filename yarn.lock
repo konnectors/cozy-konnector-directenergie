@@ -2084,10 +2084,10 @@ cozy-app-publish@0.33.0:
     tar "^6.1.11"
     verror "^1.10.1"
 
-cozy-clisk@^0.36.1:
-  version "0.36.1"
-  resolved "https://registry.yarnpkg.com/cozy-clisk/-/cozy-clisk-0.36.1.tgz#4c3bcfa24cb440ecb26a637903e9e9cacf7ebf1c"
-  integrity sha512-u83HcpxNsDSH/qcOCOBeCKWEWWK7ppWdewZDfAxTQ3u5z2bg5XD9sIqyCCxqBQLgkBM5FDACYhEaTmRGYIwOJA==
+cozy-clisk@^0.37.0:
+  version "0.37.0"
+  resolved "https://registry.yarnpkg.com/cozy-clisk/-/cozy-clisk-0.37.0.tgz#3aad51ce6d01d8cfbdeb4afc587000f3f405ad33"
+  integrity sha512-2/h+LA85QyXGy8QdFJO/zcu6INWl2BlW5+SAslfPfckVU1cVQrs/A9rgX8fpjgr0JyDyKIoEUPa5ocvcc7tnNQ==
   dependencies:
     "@cozy/minilog" "^1.0.0"
     bluebird-retry "^0.11.0"
@@ -3115,6 +3115,11 @@ is-negative-zero@^2.0.2:
   resolved "https://registry.yarnpkg.com/is-negative-zero/-/is-negative-zero-2.0.2.tgz#7bf6f03a28003b8b3965de3ac26f664d765f3150"
   integrity sha512-dqJvarLawXsFbNDeJW7zAz8ItJ9cd28YufuuFzh0G8pNHjJMnY08Dv7sYX2uF5UpQOwieAeOExEYAWWfu7ZZUA==
 
+is-network-error@^1.0.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/is-network-error/-/is-network-error-1.1.0.tgz#d26a760e3770226d11c169052f266a4803d9c997"
+  integrity sha512-tUdRRAnhT+OtCZR/LxZelH/C7QtjtFrTu5tXCA8pl55eTUElUHT+GPYV8MBMBvea/j+NxQqVt3LbWMRir7Gx9g==
+
 is-number-object@^1.0.4:
   version "1.0.7"
   resolved "https://registry.yarnpkg.com/is-number-object/-/is-number-object-1.0.7.tgz#59d50ada4c45251784e9904f5246c742f07a42fc"
@@ -3694,12 +3699,13 @@ p-locate@^5.0.0:
   dependencies:
     p-limit "^3.0.2"
 
-p-retry@^6.0.0:
-  version "6.0.0"
-  resolved "https://registry.yarnpkg.com/p-retry/-/p-retry-6.0.0.tgz#059de483a8ff588a7a28fad5801868267c2494ef"
-  integrity sha512-6NuuXu8Upembd4sNdo4PRbs+M6aHgBTrFE6lkH0YKjVzne3cDW4gkncB98ty/bkMxLxLVNeD5bX9FyWjM7WZ+A==
+p-retry@^6.2.0:
+  version "6.2.0"
+  resolved "https://registry.yarnpkg.com/p-retry/-/p-retry-6.2.0.tgz#8d6df01af298750009691ce2f9b3ad2d5968f3bd"
+  integrity sha512-JA6nkq6hKyWLLasXQXUrO4z8BUZGUt/LjlJxx8Gb2+2ntodU/SS63YZ8b0LUTbQ8ZB9iwOfhEPhg4ykKnn2KsA==
   dependencies:
     "@types/retry" "0.12.2"
+    is-network-error "^1.0.0"
     retry "^0.13.1"
 
 p-timeout@^6.0.0:
