@@ -106,10 +106,10 @@ class TemplateContentScript extends ContentScript {
       'click',
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
-    await Promise.race([
-      this.waitForErrors(),
-      this.waitForElementInWorker('main > div > h1')
-    ])
+    await this.PromiseRaceWithError(
+      [this.waitForErrors(), this.waitForElementInWorker('main > div > h1')],
+      'navigateToContactInformation: waiting for errors or contact informations'
+    )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
 
@@ -134,14 +134,9 @@ class TemplateContentScript extends ContentScript {
     await this.evaluateInWorker(function reloadErrorPage() {
       window.location.reload()
     })
-    // As this function is generic, we need to race every awaited elements
-    // and possible errors elements during the entire konnector's execution
-    await Promise.race([
-      this.waitForElementInWorker('.cadre2'),
-      this.waitForElementInWorker('.arrondi-04:not(img)'),
-      this.waitForElementInWorker('a[href="javascript:history.back();"]'),
-      this.waitForElementInWorker('img[src*="/page-404.png"]')
-    ])
+    await this.waitForElementInWorker(
+      '.cadre2, .arrondi-04:not(img), a[href="javascript:history.back();"], img[src*="/page-404.png"]'
+    )
     if (
       (await this.isElementInWorker('a[href="javascript:history.back();"]')) ||
       (await this.isElementInWorker('img[src*="/page-404.png"]'))
@@ -182,11 +177,15 @@ class TemplateContentScript extends ContentScript {
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
-    await Promise.race([
-      this.waitForErrors(),
-      this.waitForElementInWorker('.menu-p-btn-ec'),
-      this.waitForElementInWorker('#formz-authentification-form-login')
-    ])
+    await this.PromiseRaceWithError(
+      [
+        this.waitForErrors(),
+        this.waitForElementInWorker(
+          '.menu-p-btn-ec, #formz-authentification-form-login'
+        )
+      ],
+      'navigateToLoginForm: waiting for errors or login form'
+    )
     if (this.store.foundError) {
       await this.handleError()
     }
@@ -195,12 +194,9 @@ class TemplateContentScript extends ContentScript {
       return
     }
     await this.runInWorker('click', '.menu-p-btn-ec')
-    await Promise.race([
-      this.waitForElementInWorker('#formz-authentification-form-login'),
-      this.waitForElementInWorker(
-        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-      )
-    ])
+    await this.waitForElementInWorker(
+      '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"]'
+    )
   }
 
   async ensureAuthenticated({ account }) {
@@ -246,10 +242,10 @@ class TemplateContentScript extends ContentScript {
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite starts')
     let uniqContract = false
-    await Promise.race([
-      this.waitForElementInWorker('.cadre2'),
-      this.waitForErrors()
-    ])
+    await this.PromiseRaceWithError(
+      [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
+      'getUserDataFromWebsite: waiting for errors or cadre'
+    )
     if (this.store.foundError) {
       await this.handleError()
     }
@@ -290,10 +286,10 @@ class TemplateContentScript extends ContentScript {
     await this.runInWorker('getContractsInfos', numberOfContracts)
     if (isContractSelectionPage) {
       await this.runInWorker('selectContract', 0)
-      await Promise.race([
-        this.waitForElementInWorker('.cadre2'),
-        this.waitForErrors()
-      ])
+      await this.PromiseRaceWithError(
+        [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
+        'getUserDataFromWebsite: waiting for errors or cadre'
+      )
       if (this.store.foundError) {
         await this.handleError()
       }
@@ -315,7 +311,7 @@ class TemplateContentScript extends ContentScript {
     } else {
       this.log(
         'warn',
-        'Identty could not be fetched, impossible to reach userInfos page, will use user login as sourceAccountIdentifier'
+        'Identity could not be fetched, impossible to reach userInfos page, will use user login as sourceAccountIdentifier'
       )
     }
     const savedCredentials = await this.getCredentials()
@@ -509,12 +505,15 @@ class TemplateContentScript extends ContentScript {
         // not knowing if we're gonna find active, terminated or both, we'll wait for incomplete id
         await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
         await this.runInWorker('selectContract', i + 1)
-        await Promise.race([
-          this.waitForElementInWorker(
-            'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-          ),
-          this.waitForErrors()
-        ])
+        await this.PromiseRaceWithError(
+          [
+            this.waitForErrors(),
+            this.waitForElementInWorker(
+              'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+            )
+          ],
+          'fetch: waiting for errors or gerer mes comptes'
+        )
         if (this.store.foundError) {
           await this.handleError()
         }
@@ -548,24 +547,17 @@ class TemplateContentScript extends ContentScript {
 
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
-    await Promise.race([
-      this.waitForElementInWorker(
-        'a[href*="/clients/connexion?logintype=logout"]'
-      ),
-      this.waitForElementInWorker('#formz-authentification-form-login')
-    ])
+    await this.waitForElementInWorker(
+      'a[href*="/clients/connexion?logintype=logout"], #formz-authentification-form-login'
+    )
     const alreadyLoggedIn = await this.runInWorker('checkIfLogged')
     if (alreadyLoggedIn) {
       return true
     } else {
       await this.tryAutoLogin(credentials)
-      await Promise.race([
-        this.waitForElementInWorker('#captcha_audio'),
-        this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        ),
-        this.waitForElementInWorker('.cadre2')
-      ])
+      await this.waitForElementInWorker(
+        '#captcha_audio, a[href="/clients/mon-compte/gerer-mes-comptes"], .cadre2'
+      )
       const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
       if (isAskingCaptcha) {
         this.log(
@@ -1270,6 +1262,25 @@ class TemplateContentScript extends ContentScript {
     const elements = document.querySelectorAll(element)
     for (const element of elements) {
       element.remove()
+    }
+  }
+
+  async PromiseRaceWithError(promises, msg) {
+    try {
+      this.log('debug', msg)
+      await Promise.race(promises)
+    } catch (err) {
+      if (err instanceof Error) {
+        this.log('warn', err?.message || err)
+      } else {
+        this.log(
+          'warn',
+          `caught an Error which is not instance of Error: ${
+            err?.message || JSON.stringify(err)
+          }`
+        )
+      }
+      throw new Error(`${msg} failed to meet conditions`)
     }
   }
 }
