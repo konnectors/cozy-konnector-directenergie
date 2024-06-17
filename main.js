@@ -566,6 +566,7 @@ var ContentScript = exports["default"] = /*#__PURE__*/function () {
      * @param {object} options        - options object
      * @param {string} options.method - name of the method to run
      * @param {number} [options.timeout] - number of miliseconds before the function sends a timeout error. Default Infinity
+     * @param {string} [options.suffix] - suffix used in timeout error message, to better identify error source
      * @param {Array} [options.args] - array of args to pass to the method
      * @returns {Promise<boolean>} - true
      * @throws {TimeoutError} - if timeout expired
@@ -575,11 +576,11 @@ var ContentScript = exports["default"] = /*#__PURE__*/function () {
     key: "runInWorkerUntilTrue",
     value: (function () {
       var _runInWorkerUntilTrue = (0, _asyncToGenerator2.default)( /*#__PURE__*/_regenerator.default.mark(function _callee9(_ref3) {
-        var method, _ref3$timeout, timeout, _ref3$args, args, result, start, isTimeout;
+        var method, _ref3$timeout, timeout, _ref3$suffix, suffix, _ref3$args, args, result, start, isTimeout;
         return _regenerator.default.wrap(function _callee9$(_context9) {
           while (1) switch (_context9.prev = _context9.next) {
             case 0:
-              method = _ref3.method, _ref3$timeout = _ref3.timeout, timeout = _ref3$timeout === void 0 ? Infinity : _ref3$timeout, _ref3$args = _ref3.args, args = _ref3$args === void 0 ? [] : _ref3$args;
+              method = _ref3.method, _ref3$timeout = _ref3.timeout, timeout = _ref3$timeout === void 0 ? Infinity : _ref3$timeout, _ref3$suffix = _ref3.suffix, suffix = _ref3$suffix === void 0 ? '' : _ref3$suffix, _ref3$args = _ref3.args, args = _ref3$args === void 0 ? [] : _ref3$args;
               this.onlyIn(PILOT_TYPE, 'runInWorkerUntilTrue');
               _log.debug('runInWorkerUntilTrue', method);
               result = false;
@@ -596,7 +597,7 @@ var ContentScript = exports["default"] = /*#__PURE__*/function () {
                 _context9.next = 9;
                 break;
               }
-              throw new _pWaitFor.TimeoutError("runInWorkerUntilTrue ".concat(method, " Timeout error after ").concat(timeout));
+              throw new _pWaitFor.TimeoutError("runInWorkerUntilTrue ".concat(method).concat(suffix, " Timeout error after ").concat(timeout));
             case 9:
               _log.debug('runInWorker call', method);
               _context9.next = 12;
@@ -644,6 +645,7 @@ var ContentScript = exports["default"] = /*#__PURE__*/function () {
               _context10.next = 4;
               return this.runInWorkerUntilTrue({
                 method: 'waitForElementNoReload',
+                suffix: selector,
                 timeout: (_options$timeout2 = options === null || options === void 0 ? void 0 : options.timeout) !== null && _options$timeout2 !== void 0 ? _options$timeout2 : DEFAULT_WAIT_FOR_ELEMENT_ACCROSS_PAGES_TIMEOUT,
                 args: [selector, {
                   includesText: options.includesText
@@ -3697,7 +3699,7 @@ function _callStringFunction() {
 /***/ ((module) => {
 
 "use strict";
-module.exports = JSON.parse('{"name":"cozy-clisk","version":"0.36.1","description":"All the libs needed to run a cozy client connector","repository":{"type":"git","url":"git+https://github.com/konnectors/libs.git"},"files":["dist"],"keywords":["konnector"],"main":"dist/index.js","author":"doubleface <christophe@cozycloud.cc>","license":"MIT","bugs":{"url":"https://github.com/konnectors/libs/issues"},"homepage":"https://github.com/konnectors/libs#readme","scripts":{"lint":"eslint \'src/**/*.js\'","prepublishOnly":"yarn run build","build":"babel --root-mode upward src/ -d dist/ --copy-files --verbose --ignore \'**/*.spec.js\',\'**/*.spec.jsx\'","test":"jest src"},"devDependencies":{"@babel/core":"7.24.0","babel-jest":"29.7.0","babel-preset-cozy-app":"2.1.0","eslint-plugin-import":"^2.29.1","eslint-plugin-jest":"^27.9.0","eslint-plugin-prettier":"^5.1.3","jest":"29.7.0","jest-environment-jsdom":"29.7.0","prettier":"^3.2.5","typescript":"4.9.5"},"dependencies":{"@cozy/minilog":"^1.0.0","bluebird-retry":"^0.11.0","ky":"^0.25.1","lodash":"^4.17.21","microee":"^0.0.6","p-timeout":"^6.0.0","p-wait-for":"^5.0.2","post-me":"^0.4.5"},"peerDependencies":{"cozy-client":">=41.2.0"},"gitHead":"2bec3f0f42ddd2e12096c74085171476ca8172b0"}');
+module.exports = JSON.parse('{"name":"cozy-clisk","version":"0.37.0","description":"All the libs needed to run a cozy client connector","repository":{"type":"git","url":"git+https://github.com/konnectors/libs.git"},"files":["dist"],"keywords":["konnector"],"main":"dist/index.js","author":"doubleface <christophe@cozycloud.cc>","license":"MIT","bugs":{"url":"https://github.com/konnectors/libs/issues"},"homepage":"https://github.com/konnectors/libs#readme","scripts":{"lint":"eslint \'src/**/*.js\'","prepublishOnly":"yarn run build","build":"babel --root-mode upward src/ -d dist/ --copy-files --verbose --ignore \'**/*.spec.js\',\'**/*.spec.jsx\'","test":"jest src"},"devDependencies":{"@babel/core":"7.24.0","babel-jest":"29.7.0","babel-preset-cozy-app":"2.1.0","eslint-plugin-import":"^2.29.1","eslint-plugin-jest":"^27.9.0","eslint-plugin-prettier":"^5.1.3","jest":"29.7.0","jest-environment-jsdom":"29.7.0","prettier":"^3.2.5","typescript":"4.9.5"},"dependencies":{"@cozy/minilog":"^1.0.0","bluebird-retry":"^0.11.0","ky":"^0.25.1","lodash":"^4.17.21","microee":"^0.0.6","p-timeout":"^6.0.0","p-wait-for":"^5.0.2","post-me":"^0.4.5"},"peerDependencies":{"cozy-client":">=41.2.0"},"gitHead":"d8bbed286c6633aacf90c09983d2f02def0d8b85"}');
 
 /***/ }),
 /* 35 */
@@ -5617,15 +5619,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   "default": () => (/* binding */ pRetry)
 /* harmony export */ });
 /* harmony import */ var retry__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(53);
+/* harmony import */ var is_network_error__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(56);
 
 
-const networkErrorMsgs = new Set([
-	'Failed to fetch', // Chrome
-	'NetworkError when attempting to fetch resource.', // Firefox
-	'The Internet connection appears to be offline.', // Safari
-	'Network request failed', // `cross-fetch`
-	'fetch failed', // Undici (Node.js)
-]);
 
 class AbortError extends Error {
 	constructor(message) {
@@ -5653,13 +5649,12 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	return error;
 };
 
-const isNetworkError = errorMessage => networkErrorMsgs.has(errorMessage);
-
 async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {
 			onFailedAttempt() {},
 			retries: 10,
+			shouldRetry: () => true,
 			...options,
 		};
 
@@ -5694,11 +5689,18 @@ async function pRetry(input, options) {
 						throw error.originalError;
 					}
 
-					if (error instanceof TypeError && !isNetworkError(error.message)) {
+					if (error instanceof TypeError && !(0,is_network_error__WEBPACK_IMPORTED_MODULE_1__["default"])(error)) {
 						throw error;
 					}
 
-					await options.onFailedAttempt(decorateErrorWithCounts(error, attemptNumber, options));
+					decorateErrorWithCounts(error, attemptNumber, options);
+
+					if (!(await options.shouldRetry(error))) {
+						operation.stop();
+						reject(error);
+					}
+
+					await options.onFailedAttempt(error);
 
 					if (!operation.retry(error)) {
 						throw operation.mainError();
@@ -5994,6 +5996,50 @@ RetryOperation.prototype.mainError = function() {
 };
 
 
+/***/ }),
+/* 56 */
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (/* binding */ isNetworkError)
+/* harmony export */ });
+const objectToString = Object.prototype.toString;
+
+const isError = value => objectToString.call(value) === '[object Error]';
+
+const errorMessages = new Set([
+	'network error', // Chrome
+	'Failed to fetch', // Chrome
+	'NetworkError when attempting to fetch resource.', // Firefox
+	'The Internet connection appears to be offline.', // Safari 16
+	'Load failed', // Safari 17+
+	'Network request failed', // `cross-fetch`
+	'fetch failed', // Undici (Node.js)
+	'terminated', // Undici (Node.js)
+]);
+
+function isNetworkError(error) {
+	const isValid = error
+		&& isError(error)
+		&& error.name === 'TypeError'
+		&& typeof error.message === 'string';
+
+	if (!isValid) {
+		return false;
+	}
+
+	// We do an extra check for Safari 17+ as it has a very generic error message.
+	// Network errors in Safari have no stack.
+	if (error.message === 'Load failed') {
+		return error.stack === undefined;
+	}
+
+	return errorMessages.has(error.message);
+}
+
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -6193,10 +6239,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       'click',
       'a[href="/clients/mon-compte/mes-infos-de-contact"]'
     )
-    await Promise.race([
-      this.waitForErrors(),
-      this.waitForElementInWorker('main > div > h1')
-    ])
+    await this.PromiseRaceWithError(
+      [this.waitForErrors(), this.waitForElementInWorker('main > div > h1')],
+      'navigateToContactInformation: waiting for errors or contact informations'
+    )
     await this.runInWorkerUntilTrue({ method: 'checkInfosPageTitle' })
   }
 
@@ -6221,14 +6267,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     await this.evaluateInWorker(function reloadErrorPage() {
       window.location.reload()
     })
-    // As this function is generic, we need to race every awaited elements
-    // and possible errors elements during the entire konnector's execution
-    await Promise.race([
-      this.waitForElementInWorker('.cadre2'),
-      this.waitForElementInWorker('.arrondi-04:not(img)'),
-      this.waitForElementInWorker('a[href="javascript:history.back();"]'),
-      this.waitForElementInWorker('img[src*="/page-404.png"]')
-    ])
+    await this.waitForElementInWorker(
+      '.cadre2, .arrondi-04:not(img), a[href="javascript:history.back();"], img[src*="/page-404.png"]'
+    )
     if (
       (await this.isElementInWorker('a[href="javascript:history.back();"]')) ||
       (await this.isElementInWorker('img[src*="/page-404.png"]'))
@@ -6269,11 +6310,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
     await this.goto(baseUrl)
-    await Promise.race([
-      this.waitForErrors(),
-      this.waitForElementInWorker('.menu-p-btn-ec'),
-      this.waitForElementInWorker('#formz-authentification-form-login')
-    ])
+    await this.PromiseRaceWithError(
+      [
+        this.waitForErrors(),
+        this.waitForElementInWorker(
+          '.menu-p-btn-ec, #formz-authentification-form-login'
+        )
+      ],
+      'navigateToLoginForm: waiting for errors or login form'
+    )
     if (this.store.foundError) {
       await this.handleError()
     }
@@ -6282,12 +6327,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       return
     }
     await this.runInWorker('click', '.menu-p-btn-ec')
-    await Promise.race([
-      this.waitForElementInWorker('#formz-authentification-form-login'),
-      this.waitForElementInWorker(
-        'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-      )
-    ])
+    await this.waitForElementInWorker(
+      '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"]'
+    )
   }
 
   async ensureAuthenticated({ account }) {
@@ -6333,10 +6375,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
   async getUserDataFromWebsite() {
     this.log('info', '🤖 getUserDataFromWebsite starts')
     let uniqContract = false
-    await Promise.race([
-      this.waitForElementInWorker('.cadre2'),
-      this.waitForErrors()
-    ])
+    await this.PromiseRaceWithError(
+      [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
+      'getUserDataFromWebsite: waiting for errors or cadre'
+    )
     if (this.store.foundError) {
       await this.handleError()
     }
@@ -6377,10 +6419,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     await this.runInWorker('getContractsInfos', numberOfContracts)
     if (isContractSelectionPage) {
       await this.runInWorker('selectContract', 0)
-      await Promise.race([
-        this.waitForElementInWorker('.cadre2'),
-        this.waitForErrors()
-      ])
+      await this.PromiseRaceWithError(
+        [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
+        'getUserDataFromWebsite: waiting for errors or cadre'
+      )
       if (this.store.foundError) {
         await this.handleError()
       }
@@ -6402,7 +6444,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     } else {
       this.log(
         'warn',
-        'Identty could not be fetched, impossible to reach userInfos page, will use user login as sourceAccountIdentifier'
+        'Identity could not be fetched, impossible to reach userInfos page, will use user login as sourceAccountIdentifier'
       )
     }
     const savedCredentials = await this.getCredentials()
@@ -6596,12 +6638,15 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         // not knowing if we're gonna find active, terminated or both, we'll wait for incomplete id
         await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
         await this.runInWorker('selectContract', i + 1)
-        await Promise.race([
-          this.waitForElementInWorker(
-            'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-          ),
-          this.waitForErrors()
-        ])
+        await this.PromiseRaceWithError(
+          [
+            this.waitForErrors(),
+            this.waitForElementInWorker(
+              'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+            )
+          ],
+          'fetch: waiting for errors or gerer mes comptes'
+        )
         if (this.store.foundError) {
           await this.handleError()
         }
@@ -6635,24 +6680,17 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async authWithCredentials(credentials) {
     this.log('info', 'auth with credentials starts')
-    await Promise.race([
-      this.waitForElementInWorker(
-        'a[href*="/clients/connexion?logintype=logout"]'
-      ),
-      this.waitForElementInWorker('#formz-authentification-form-login')
-    ])
+    await this.waitForElementInWorker(
+      'a[href*="/clients/connexion?logintype=logout"], #formz-authentification-form-login'
+    )
     const alreadyLoggedIn = await this.runInWorker('checkIfLogged')
     if (alreadyLoggedIn) {
       return true
     } else {
       await this.tryAutoLogin(credentials)
-      await Promise.race([
-        this.waitForElementInWorker('#captcha_audio'),
-        this.waitForElementInWorker(
-          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-        ),
-        this.waitForElementInWorker('.cadre2')
-      ])
+      await this.waitForElementInWorker(
+        '#captcha_audio, a[href="/clients/mon-compte/gerer-mes-comptes"], .cadre2'
+      )
       const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
       if (isAskingCaptcha) {
         this.log(
@@ -7357,6 +7395,25 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     const elements = document.querySelectorAll(element)
     for (const element of elements) {
       element.remove()
+    }
+  }
+
+  async PromiseRaceWithError(promises, msg) {
+    try {
+      this.log('debug', msg)
+      await Promise.race(promises)
+    } catch (err) {
+      if (err instanceof Error) {
+        this.log('warn', err?.message || err)
+      } else {
+        this.log(
+          'warn',
+          `caught an Error which is not instance of Error: ${
+            err?.message || JSON.stringify(err)
+          }`
+        )
+      }
+      throw new Error(`${msg} failed to meet conditions`)
     }
   }
 }
