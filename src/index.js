@@ -586,7 +586,7 @@ class TemplateContentScript extends ContentScript {
       return true
     } else {
       await this.tryAutoLogin(credentials)
-
+      await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
       await this.waitForElementInWorker(
         '#captcha_audio, a[href="/clients/mon-compte/gerer-mes-comptes"], .cadre2'
       )
