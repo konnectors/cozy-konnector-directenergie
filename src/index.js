@@ -554,6 +554,7 @@ class TemplateContentScript extends ContentScript {
 
   async fetchBills() {
     this.log('info', 'fetchBills starts')
+    await this.waitForElementInWorker('a[href="/clients/mes-factures"]')
     await this.clickAndWait(
       'a[href="/clients/mes-factures"]',
       'a[href="/clients/mes-factures/mon-historique-de-factures"]'
@@ -720,8 +721,13 @@ class TemplateContentScript extends ContentScript {
     // If there is just one contract, we assume we cannot reach the chooseContract page
     // So we're scraping the contract info on homePage
     if (numberOfContracts === 1) {
+      this.log('info', 'one contract only')
       const contractInfosElement =
         document.querySelector('h1').nextElementSibling
+      this.log(
+        'info',
+        `Boolean(contractInfosElement) : ${Boolean(contractInfosElement)}`
+      )
       const foundAddress = contractInfosElement
         .querySelector('div > div > p')
         .textContent.replace(/\n/g, '')
