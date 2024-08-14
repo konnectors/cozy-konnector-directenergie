@@ -6221,10 +6221,12 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (document.readyState !== 'loading') {
       this.log('info', 'readyState')
       this.watchLoadingErrors.bind(this)()
+      this.watchLoginForm.bind(this)()
     } else {
       window.addEventListener('DOMContentLoaded', () => {
         this.log('info', 'DOMLoaded')
         this.watchLoadingErrors.bind(this)()
+        this.watchLoginForm.bind(this)()
       })
     }
   }
@@ -6234,6 +6236,11 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (event === 'errorDetected') {
       this.log('info', `Error ${payload} found, sending error to store`)
       this.store.foundError = { event, payload }
+    }
+    if (event === 'loginSubmit') {
+      this.log('info', `User's credential intercepted`)
+      const { login, password } = payload
+      this.store.userCredentials = { login, password }
     }
   }
 
@@ -6286,6 +6293,30 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       })
     } else {
       this.log('info', 'None of the listed error found for this page')
+    }
+  }
+
+  watchLoginForm() {
+    this.log('info', '📍️ watchLoginForm starts')
+    const loginField = document.querySelector(
+      '#formz-authentification-form-login'
+    )
+    const passwordField = document.querySelector(
+      '#formz-authentification-form-password'
+    )
+    if (loginField && passwordField) {
+      this.log('info', 'Found credentials fields, adding form listener')
+      const loginForm = document.querySelector('#fz-authentificationForm')
+      loginForm.addEventListener('submit', () => {
+        const login = loginField.value
+        const password = passwordField.value
+        const event = 'loginSubmit'
+        const payload = { login, password }
+        this.bridge.emit('workerEvent', {
+          event,
+          payload
+        })
+      })
     }
   }
 
@@ -6718,6 +6749,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async fetchBills() {
     this.log('info', 'fetchBills starts')
+    await this.waitForElementInWorker('a[href="/clients/mes-factures"]')
     await this.clickAndWait(
       'a[href="/clients/mes-factures"]',
       'a[href="/clients/mes-factures/mon-historique-de-factures"]'
@@ -6750,6 +6782,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       return true
     } else {
       await this.tryAutoLogin(credentials)
+      await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
       await this.waitForElementInWorker(
         '#captcha_audio, a[href="/clients/mon-compte/gerer-mes-comptes"], .cadre2'
       )
@@ -6777,14 +6810,6 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async tryAutoLogin(credentials) {
     this.log('debug', 'Trying auto login')
-    await this.autoLogin(credentials)
-    if (await this.checkAuthenticated()) {
-      return true
-    }
-  }
-
-  async autoLogin(credentials) {
-    this.log('info', 'AutoLogin starts')
     await this.waitForElementInWorker('#formz-authentification-form-login')
     await this.runInWorker('fillingForm', credentials)
     await this.runInWorker(
@@ -6800,22 +6825,6 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async checkAuthenticated() {
     this.log('info', 'checkAuthenticated starts')
-    const loginField = document.querySelector(
-      '#formz-authentification-form-login'
-    )
-    const passwordField = document.querySelector(
-      '#formz-authentification-form-password'
-    )
-    if (loginField && passwordField) {
-      const userCredentials = await this.findAndSendCredentials.bind(this)(
-        loginField,
-        passwordField
-      )
-      this.log('debug', 'Sendin userCredentials to Pilot')
-      this.sendToPilot({
-        userCredentials
-      })
-    }
     // Here the type of check depend on session.
     // If the session is active at konnector start, then the landing page is '/clients/accueil'
     // If the connection has just been made (by the user or with autoLogin), we land on the second if's url (HOMEPAGE_URL)
@@ -6839,17 +6848,6 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       return true
     }
     return false
-  }
-
-  async findAndSendCredentials(login, password) {
-    this.log('debug', 'findAndSendCredentials starts')
-    let userLogin = login.value
-    let userPassword = password.value
-    const userCredentials = {
-      login: userLogin,
-      password: userPassword
-    }
-    return userCredentials
   }
 
   async clickLoginPage() {
@@ -6918,8 +6916,13 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     // If there is just one contract, we assume we cannot reach the chooseContract page
     // So we're scraping the contract info on homePage
     if (numberOfContracts === 1) {
+      this.log('info', 'one contract only')
       const contractInfosElement =
         document.querySelector('h1').nextElementSibling
+      this.log(
+        'info',
+        `Boolean(contractInfosElement) : ${Boolean(contractInfosElement)}`
+      )
       const foundAddress = contractInfosElement
         .querySelector('div > div > p')
         .textContent.replace(/\n/g, '')
