@@ -449,6 +449,10 @@ class TemplateContentScript extends ContentScript {
     if (this.store.userCredentials) {
       await this.saveCredentials(this.store.userCredentials)
     }
+    if (!clientRefs) {
+      this.log('warn', 'Found no contract. clientRefs is empty')
+      return true
+    }
     for (let i = 0; i < numberOfContracts; i++) {
       const billsDone = await this.fetchBills()
       if (billsDone) {
