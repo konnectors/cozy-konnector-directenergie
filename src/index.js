@@ -839,9 +839,12 @@ class TemplateContentScript extends ContentScript {
 
   async getContract() {
     this.log('info', 'getContract starts')
-    const contractElement = document.querySelector('.arrondi-04')
+    const contractElement = document.querySelector(
+      '[data-cs-override-id="offreDescription"]'
+    )
     const offerName = contractElement
-      .querySelector('[data-cs-override-id="offreDescription"] > p')
+      // First p tag is the starting date of the contract
+      .querySelector('p')
       .innerHTML.replace(/  {2}|\n/g, '')
       .trim()
     const rawStartDate = contractElement.querySelector(
