@@ -6205,11 +6205,12 @@ const baseUrl = 'https://www.totalenergies.fr/'
 const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
-const contractSelectionPage =
-  'https://www.totalenergies.fr/clients/selection-compte'
+
+// Keeping this urls around in case they're needed in the future
+// const contractSelectionPage =
+//   'https://www.totalenergies.fr/clients/selection-compte'
 // const contactInfosPage =
 //   'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
-// Keeping this urls around in case they're needed in the future
 // const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
 // const billsHistoricPage =
 //   'https://www.totalenergies.fr/clients/mes-factures/mon-historique-de-factures'
@@ -6360,8 +6361,14 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     await this.evaluateInWorker(function reloadErrorPage() {
       window.location.reload()
     })
-    await this.waitForElementInWorker(
-      '.cadre2, .arrondi-04:not(img), a[href="javascript:history.back();"], img[src*="/page-404.png"]'
+    await this.PromiseRaceWithError(
+      [
+        this.waitForErrors(),
+        this.waitForElementInWorker(
+          'nav[aria-label="Menu principal"], .arrondi-04:not(img), a[href="javascript:history.back();"], img[src*="/page-404.png"]'
+        )
+      ],
+      'reloadPageOnError: waiting for post-reload elements'
     )
     if (
       (await this.isElementInWorker('a[href="javascript:history.back();"]')) ||
@@ -6369,7 +6376,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     ) {
       return false
     }
-    if (await this.isElementInWorker('.cadre2')) {
+    if (await this.isElementInWorker('nav[aria-label="Menu principal"]')) {
+      // nav element is the only viable & common element of every page after login
       return true
     }
     // We need to precise no images here, the class is used on the image shown on a 404 error
@@ -6407,21 +6415,21 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       [
         this.waitForErrors(),
         this.waitForElementInWorker(
-          '.menu-p-btn-ec, #formz-authentification-form-login'
+          'a[title="Espace Client"], #formz-authentification-form-login'
         )
       ],
-      'navigateToLoginForm: waiting for errors or login form'
+      'navigateToLoginForm: waiting for errors, login form or captcha frame'
     )
     if (this.store.foundError) {
       await this.handleError()
     }
     if (await this.isElementInWorker('#formz-authentification-form-login')) {
       this.log('info', 'baseUrl leads to loginForm, continue')
-      return
+      return true
     }
-    await this.runInWorker('click', '.menu-p-btn-ec')
+    await this.runInWorker('click', 'a[title="Espace Client"]')
     await this.waitForElementInWorker(
-      '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"]'
+      '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"], #captcha__frame'
     )
   }
 
@@ -6469,7 +6477,19 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     this.log('info', '🤖 getUserDataFromWebsite starts')
     let uniqContract = false
     await this.PromiseRaceWithError(
-      [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
+      [
+        this.waitForErrors(),
+        this.waitForElementInWorker('h2', {
+          includesText: 'Conso électricité'
+        }),
+        this.waitForElementInWorker('h2', {
+          includesText: 'Conso gaz'
+        }),
+        this.waitForElementInWorker('p', {
+          includesText:
+            'Votre contrat Electricité ou Gaz TotalEnergies est résilié.'
+        })
+      ],
       'getUserDataFromWebsite: waiting for errors or cadre'
     )
     if (this.store.foundError) {
@@ -6513,8 +6533,20 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (isContractSelectionPage) {
       await this.runInWorker('selectContract', 0)
       await this.PromiseRaceWithError(
-        [this.waitForErrors(), this.waitForElementInWorker('.cadre2')],
-        'getUserDataFromWebsite: waiting for errors or cadre'
+        [
+          this.waitForErrors(),
+          this.waitForElementInWorker('h2', {
+            includesText: 'Conso électricité'
+          }),
+          this.waitForElementInWorker('h2', {
+            includesText: 'Conso gaz'
+          }),
+          this.waitForElementInWorker('p', {
+            includesText:
+              'Votre contrat Electricité ou Gaz TotalEnergies est résilié.'
+          })
+        ],
+        'getUserDataFromWebsite: waiting for errors or usable elements'
       )
       if (this.store.foundError) {
         await this.handleError()
@@ -6587,6 +6619,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     // so as we need to reach back the home page anyway, if the selector is not found we just load the homePage
     if (elementToClick) {
       this.log('info', 'selectContract - elementToClick found')
+
       elementToClick.click()
     } else {
       this.log(
@@ -6730,8 +6763,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
           'info',
           'More than 1 contract found, fetching bills and contract pdfs for the others'
         )
-        await this.runInWorker('removeElement', '.cadre2')
-        await this.goto(contractSelectionPage)
+        await this.runInWorker(
+          'click',
+          'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+        )
         // not knowing if we're gonna find active, terminated or both, we'll wait for incomplete id
         await this.waitForElementInWorker('[id*="js--listjs-comptes-"]')
         await this.runInWorker('selectContract', i + 1)
@@ -6787,8 +6822,24 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     } else {
       await this.tryAutoLogin(credentials)
       await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
-      await this.waitForElementInWorker(
-        '#captcha_audio, a[href="/clients/mon-compte/gerer-mes-comptes"], .cadre2'
+      await this.PromiseRaceWithError(
+        [
+          this.waitForErrors(),
+          this.waitForElementInWorker(
+            '#captcha__frame, a[href="/clients/mon-compte/gerer-mes-comptes"]'
+          ),
+          this.waitForElementInWorker('h2', {
+            includesText: 'Conso électricité'
+          }),
+          this.waitForElementInWorker('h2', {
+            includesText: 'Conso gaz'
+          }),
+          this.waitForElementInWorker('p', {
+            includesText:
+              'Votre contrat Electricité ou Gaz TotalEnergies est résilié.'
+          })
+        ],
+        'authWithCredentials : waiting for errors or logged elements'
       )
       const isAskingCaptcha = await this.runInWorker('checkIfAskingCaptcha')
       if (isAskingCaptcha) {
@@ -7364,13 +7415,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   checkIfAskingCaptcha() {
     this.log('info', 'checkIfAskingCaptcha starts')
-    const isCaptchaPage = document.querySelector('#captcha_audio')
-    const captchaTitle = document.querySelector('h2')?.textContent
-
-    if (isCaptchaPage && captchaTitle === 'Non, je ne suis pas un robot !') {
-      return true
-    }
-    return false
+    return Boolean(document.querySelector('#captcha__frame'))
   }
 
   async waitAndGetContractsInfos() {
@@ -7460,16 +7505,6 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     return addresses
   }
 
-  removeElement(element) {
-    this.log('info', 'removeElement starts')
-    // Here we're removing all element with .cadre2 class as we're gonna
-    // use this class to know when we reached the contract selection page
-    const elements = document.querySelectorAll(element)
-    for (const element of elements) {
-      element.remove()
-    }
-  }
-
   async PromiseRaceWithError(promises, msg) {
     try {
       this.log('debug', msg)
@@ -7507,8 +7542,7 @@ connector
       'checkIfAskingCaptcha',
       'waitAndGetContractsInfos',
       'getContractsAddresses',
-      'selectContract',
-      'removeElement'
+      'selectContract'
     ]
   })
   .catch(err => {
