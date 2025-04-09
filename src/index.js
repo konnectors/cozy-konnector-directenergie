@@ -10,11 +10,12 @@ const baseUrl = 'https://www.totalenergies.fr/'
 const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
-const contractSelectionPage =
-  'https://www.totalenergies.fr/clients/selection-compte'
+
+// Keeping this urls around in case they're needed in the future
+// const contractSelectionPage =
+//   'https://www.totalenergies.fr/clients/selection-compte'
 // const contactInfosPage =
 //   'https://www.totalenergies.fr/clients/mon-compte/mes-infos-de-contact'
-// Keeping this urls around in case they're needed in the future
 // const billsPage = 'https://www.totalenergies.fr/clients/mes-factures'
 // const billsHistoricPage =
 //   'https://www.totalenergies.fr/clients/mes-factures/mon-historique-de-factures'
